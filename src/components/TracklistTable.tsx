@@ -26,7 +26,7 @@ export const TracklistTable: React.FC<TracklistTableProps> = ({
   if (tracks.length === 0) {
     return (
       <div className="w-full py-16 text-center text-zinc-500 bg-zinc-950/40 rounded-xl border border-zinc-800/40">
-        <p className="text-sm">No tracks in flow yet. Click "Generate Flow" above.</p>
+        <p className="text-sm">No tracks in library yet. Click "Actualizar Biblioteca" to load your liked songs.</p>
       </div>
     );
   }
@@ -39,7 +39,7 @@ export const TracklistTable: React.FC<TracklistTableProps> = ({
         <div>Title & Artist</div>
         <div className="hidden md:block">BPM & Cadence</div>
         <div className="text-center">Energy Vector</div>
-        <div className="hidden sm:block text-center">Mood & Transition</div>
+        <div className="hidden sm:block text-center">Mood & Profile</div>
         <div className="text-right flex justify-end pr-2">
           <Clock className="w-4 h-4 text-zinc-500" />
         </div>
@@ -50,17 +50,19 @@ export const TracklistTable: React.FC<TracklistTableProps> = ({
         {displayedTracks.map((track, idx) => {
           const isActive = activeTrackId === track.id;
           const energyVal = track.energy_score ?? track.energy ?? 50;
+          const bpmVal = track.bpm || 124;
           const energyMeta = getEnergyColor(energyVal);
 
-          // Check if this row is the start of a new phase (for divider)
+          // Check if this row is the start of a new phase (for divider in flow view)
           const isPhaseStart =
             (selectedPhaseFilter === 'all' || !selectedPhaseFilter) &&
+            track.phase &&
             (idx === 0 || tracks[idx - 1]?.phase !== track.phase);
 
           return (
             <React.Fragment key={track.id}>
               {/* Dynamic Phase Header Divider */}
-              {isPhaseStart && track.phase && (
+              {isPhaseStart && (
                 <div className="px-4 py-2.5 bg-zinc-950/90 border-t border-b border-zinc-800/80 flex items-center justify-between text-xs font-semibold tracking-wider">
                   <div className="flex items-center gap-2.5">
                     <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: energyMeta.accent }} />
@@ -131,7 +133,7 @@ export const TracklistTable: React.FC<TracklistTableProps> = ({
                 <div className="hidden md:flex flex-col text-xs font-mono text-zinc-400">
                   <div className="flex items-center gap-1.5 text-zinc-200">
                     <Activity className="w-3.5 h-3.5 text-amber-400" />
-                    <span className="font-bold">{track.bpm} BPM</span>
+                    <span className="font-bold">{bpmVal} BPM</span>
                   </div>
                   <span className="text-[10px] text-zinc-500 truncate">
                     {track.vocal_presence !== undefined ? `${track.vocal_presence}% vocals` : track.album}
@@ -159,12 +161,16 @@ export const TracklistTable: React.FC<TracklistTableProps> = ({
 
                 {/* Mood & Transition */}
                 <div className="hidden sm:flex flex-col items-center justify-center text-center">
-                  <span className="text-[10.5px] font-mono text-zinc-300 px-2 py-0.5 rounded bg-zinc-900/80 border border-zinc-800">
+                  <span className="text-[10.5px] font-mono text-zinc-300 px-2.5 py-0.5 rounded-full bg-zinc-900/90 border border-zinc-800 whitespace-nowrap">
                     {track.mood_vibe || getValenceLabel(track.valence_score ?? track.valence)}
                   </span>
-                  {track.transition_note && (
+                  {track.transition_note ? (
                     <span className="text-[9.5px] text-cyan-400 font-mono mt-0.5 truncate max-w-[130px]">
                       {track.transition_note}
+                    </span>
+                  ) : (
+                    <span className="text-[9px] text-zinc-500 font-mono mt-0.5">
+                      Valence: {track.valence_score ?? track.valence ?? 50}%
                     </span>
                   )}
                 </div>

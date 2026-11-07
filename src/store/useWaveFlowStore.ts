@@ -24,6 +24,7 @@ import {
   generateCognitiveDJFlow,
   PHASE_CONFIGS
 } from '../algorithm/curveGenerator';
+import { enrichTrackLibrary } from '../algorithm/acousticAnalyzer';
 import { generateMockLikedTracks } from '../api/mockData';
 import confetti from 'canvas-confetti';
 
@@ -58,7 +59,22 @@ function getCachedTracks(): Track[] {
   try {
     const raw = localStorage.getItem('waveflow_cached_liked_songs');
     if (!raw) return [];
-    return JSON.parse(raw);
+    const parsed: Track[] = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) return [];
+
+    // Auto-migrate: check if any track lacks BPM, energy_score, or mood_vibe
+    const needsMigration = parsed.some(
+      (t) => !t.bpm || t.energy_score === undefined || !t.mood_vibe
+    );
+
+    if (needsMigration) {
+      console.info(`Auto-analyzing ${parsed.length} tracks with acoustic vectors...`);
+      const enriched = enrichTrackLibrary(parsed);
+      saveCachedTracks(enriched);
+      return enriched;
+    }
+
+    return parsed;
   } catch {
     return [];
   }
@@ -166,7 +182,7 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
           activeTrack: initialFlow.curated_set[0] || null,
           status: {
             step: 'ready',
-            message: `Loaded ${cached.length} cached tracks. Set ready: ${initialFlow.computed_total_tracks} tracks (${Math.round(initialFlow.computed_total_duration_ms / 60000)}m).`,
+            message: `${cached.length} canciones analizadas. Set listo: ${initialFlow.computed_total_tracks} tracks (${Math.round(initialFlow.computed_total_duration_ms / 60000)}m).`,
             progress: 100
           }
         });
@@ -204,7 +220,7 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
 
   setMockMode: (enabled: boolean) => {
     if (enabled) {
-      const mockTracks = generateMockLikedTracks();
+      const mockTracks = enrichTrackLibrary(generateMockLikedTracks());
       const initialFlow = generateCognitiveDJFlow(mockTracks, get().flowIntent);
       saveCachedTracks(mockTracks);
       set({
@@ -284,18 +300,18 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
       isSyncingLibrary: true,
       status: {
         step: 'fetching',
-        message: 'Sincronizando todas las canciones de tu biblioteca...',
+        message: 'Sincronizando y analizando canciones de tu biblioteca...',
         progress: 15
       }
     });
 
     try {
-      let tracks: Track[] = [];
+      let rawTracks: Track[] = [];
       if (isMockMode || !tokens?.accessToken) {
         await new Promise((r) => setTimeout(r, 400));
-        tracks = generateMockLikedTracks();
+        rawTracks = generateMockLikedTracks();
       } else {
-        tracks = await fetchUserLikedSongs(
+        rawTracks = await fetchUserLikedSongs(
           tokens.accessToken,
           undefined,
           (fetched, total) => {
@@ -310,13 +326,15 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
         );
       }
 
-      saveCachedTracks(tracks);
+      // Automatically analyze & enrich all tracks with cognitive acoustic vectors
+      const enrichedTracks = enrichTrackLibrary(rawTracks);
+      saveCachedTracks(enrichedTracks);
       set({
-        likedTracks: tracks,
+        likedTracks: enrichedTracks,
         isSyncingLibrary: false,
         status: {
           step: 'idle',
-          message: `Biblioteca sincronizada: ${tracks.length} canciones guardadas persistentemente.`,
+          message: `Biblioteca analizada: ${enrichedTracks.length} canciones con BPM, energía y mood únicos.`,
           progress: 100
         }
       });
@@ -419,23 +437,24 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
           set({ likedTracks: rawTracks });
         } else if (isMockMode || !tokens?.accessToken) {
           await new Promise((r) => setTimeout(r, 400));
-          rawTracks = generateMockLikedTracks();
+          rawTracks = enrichTrackLibrary(generateMockLikedTracks());
           saveCachedTracks(rawTracks);
           set({ likedTracks: rawTracks });
         } else {
-          rawTracks = await fetchUserLikedSongs(
+          const fetched = await fetchUserLikedSongs(
             tokens.accessToken,
             undefined,
-            (fetched, total) => {
+            (cur, total) => {
               set({
                 status: {
                   step: 'fetching',
-                  message: `Descargando canciones de biblioteca (${fetched}/${total})...`,
-                  progress: 10 + Math.round((fetched / Math.max(1, total)) * 25)
+                  message: `Descargando canciones de biblioteca (${cur}/${total})...`,
+                  progress: 10 + Math.round((cur / Math.max(1, total)) * 25)
                 }
               });
             }
           );
+          rawTracks = enrichTrackLibrary(fetched);
           saveCachedTracks(rawTracks);
           set({ likedTracks: rawTracks });
         }
@@ -544,11 +563,6 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
         });
         return;
       }
-
-      const dateStr = new Date().toLocaleDateString('es-ES', {
-        month: 'short',
-        day: 'numeric'
-      });
 
       const playlistTitle = `WaveFlow: ${intentConfig.name} (${durationMins}m)`;
       const description = `${intentConfig.tagline}. Calibrado por WaveFlow AI con arquitectura de transición de BPM y valencia.`;
