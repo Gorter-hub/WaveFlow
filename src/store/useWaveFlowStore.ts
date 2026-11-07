@@ -113,6 +113,11 @@ interface WaveFlowStore {
   exportedPlaylist: { id: string; url: string; name: string } | null;
   pendingPlaylist: { id: string; url: string; name: string } | null;
 
+  // Personal Ownership & Refinement State
+  flowFeedback: 'confirmed' | 'refining' | null;
+  isRefining: boolean;
+  storedPreviousResult: CuratedSetResult | null;
+
   // Actions
   init: () => Promise<void>;
   login: () => Promise<void>;
@@ -134,6 +139,13 @@ interface WaveFlowStore {
   setTargetTrackCount: (count: number) => void;
   clearError: () => void;
   syncLibrary: () => Promise<void>;
+
+  // Personal Ownership Actions
+  confirmFlowSatisfaction: () => void;
+  startRefinement: () => void;
+  cancelRefinement: () => void;
+  setIsRefining: (isRefining: boolean) => void;
+  setFlowFeedback: (feedback: 'confirmed' | 'refining' | null) => void;
 
   // Core Flow Workflow
   generateFlow: () => Promise<void>;
@@ -177,6 +189,9 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
   errorMessage: null,
   exportedPlaylist: null,
   pendingPlaylist: null,
+  flowFeedback: null,
+  isRefining: false,
+  storedPreviousResult: null,
 
   init: async () => {
     set({ isAuthLoading: true });
@@ -355,6 +370,61 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
 
   clearError: () => set({ errorMessage: null }),
 
+  confirmFlowSatisfaction: () => {
+    const { flowIntent, flowControls, flowResult, flowTracks } = get();
+    try {
+      const feedbackRecord = {
+        intent: flowIntent,
+        durationMins: flowControls.targetDurationMins || Math.round((flowResult?.computed_total_duration_ms || 0) / 60000),
+        trackCount: flowTracks.length,
+        intensity: flowControls.intensity || 'balanced',
+        transitionStyle: flowControls.transitionStyle || 'natural',
+        vocals: flowControls.vocals || 'mixed',
+        satisfaction: 'confirmed',
+        timestamp: new Date().toISOString()
+      };
+      const existing = JSON.parse(localStorage.getItem('waveflow_flow_feedback') || '[]');
+      existing.unshift(feedbackRecord);
+      localStorage.setItem('waveflow_flow_feedback', JSON.stringify(existing.slice(0, 50)));
+    } catch (e) {
+      console.warn('Could not save local feedback:', e);
+    }
+
+    set({
+      flowFeedback: 'confirmed',
+      isRefining: false,
+      storedPreviousResult: null
+    });
+  },
+
+  startRefinement: () => {
+    const { flowResult } = get();
+    set({
+      isRefining: true,
+      flowFeedback: 'refining',
+      storedPreviousResult: flowResult
+    });
+  },
+
+  cancelRefinement: () => {
+    const { storedPreviousResult } = get();
+    if (storedPreviousResult) {
+      set({
+        flowTracks: storedPreviousResult.curated_set,
+        flowResult: storedPreviousResult,
+        currentPhases: storedPreviousResult.phases,
+        targetTrackCount: storedPreviousResult.computed_total_tracks,
+        isRefining: false,
+        flowFeedback: null
+      });
+    } else {
+      set({ isRefining: false, flowFeedback: null });
+    }
+  },
+
+  setIsRefining: (isRefining: boolean) => set({ isRefining }),
+  setFlowFeedback: (feedback) => set({ flowFeedback: feedback }),
+
   syncLibrary: async () => {
     const { tokens, isMockMode } = get();
     set({
@@ -471,7 +541,10 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
         progress: 0
       },
       exportedPlaylist: null,
-      pendingPlaylist: null
+      pendingPlaylist: null,
+      flowFeedback: null,
+      isRefining: false,
+      storedPreviousResult: null
     });
   },
 
@@ -558,8 +631,10 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
         flowResult: result,
         currentPhases: result.phases,
         targetTrackCount: result.computed_total_tracks,
-        activeTrack: result.curated_set[0] || null,
+        activeTrack: get().activeTrack ? get().activeTrack : (result.curated_set[0] || null),
         selectedPhaseFilter: 'all',
+        isRefining: false,
+        flowFeedback: null,
         status: {
           step: 'ready',
           message: `WaveFlow ${COGNITIVE_INTENTS[flowIntent].name} synthesized! ${result.computed_total_tracks} tracks (${Math.round(result.computed_total_duration_ms / 60000)} mins).`,

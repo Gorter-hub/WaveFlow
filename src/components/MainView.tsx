@@ -30,7 +30,12 @@ import {
   Radio,
   Layers,
   CheckCircle2,
-  ArrowRight
+  ArrowRight,
+  Check,
+  Sliders,
+  Undo2,
+  Music,
+  Headphones
 } from 'lucide-react';
 
 interface MainViewProps {
@@ -69,11 +74,18 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
     setFlowControls,
     currentPhases,
     errorMessage,
-    clearError
+    clearError,
+    flowFeedback,
+    isRefining,
+    storedPreviousResult,
+    confirmFlowSatisfaction,
+    startRefinement,
+    cancelRefinement
   } = useWaveFlowStore();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<IntentCategory | 'all'>('all');
+  const [customGenreInput, setCustomGenreInput] = useState('');
 
   const isGenerating =
     status.step === 'fetching' ||
@@ -82,6 +94,34 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
 
   const isExporting = status.step === 'exporting';
   const hasGeneratedTracks = flowTracks.length > 0;
+
+  // Extract top genres from curated set for the personal reveal
+  const curatedGenres = Array.from(
+    new Set(
+      flowTracks
+        .map((t) => t.genre_vibe || t.mood_vibe)
+        .filter((g): g is string => Boolean(g && g.trim() && g !== 'balanced' && g !== 'all'))
+    )
+  ).slice(0, 5);
+
+  // Common genres available in the user's liked library + standard genres
+  const availableLibraryGenres = Array.from(
+    new Set([
+      'All Genres',
+      ...likedTracks
+        .map((t) => t.genre_vibe)
+        .filter((g): g is string => Boolean(g && g.trim() && g !== 'balanced' && g !== 'all')),
+      'Electronic',
+      'Rock',
+      'Indie',
+      'Lo-Fi',
+      'Ambient',
+      'Acoustic',
+      'Pop',
+      'Jazz',
+      'Ska'
+    ])
+  ).slice(0, 10);
 
   // Compute aggregated stats
   const totalDurationMs = flowTracks.reduce((acc, t) => acc + (t.duration_ms || 210000), 0);
@@ -290,6 +330,94 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
             </div>
 
             {/* =========================================================================
+                AUTHORSHIP PROGRESSION STEPPER (Discovery → Creation → Ownership)
+               ========================================================================= */}
+            <div className="bg-zinc-950/70 border border-zinc-800/80 rounded-2xl p-4 sm:p-5 shadow-xl backdrop-blur-md">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {/* Step 1: Discovery */}
+                <div
+                  className={`p-3.5 rounded-xl border transition-all ${
+                    !hasGeneratedTracks
+                      ? 'bg-spotify/10 border-spotify/40 shadow-sm'
+                      : 'bg-zinc-900/40 border-zinc-800/60'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span
+                      className={`w-6 h-6 rounded-full text-xs font-black flex items-center justify-center ${
+                        !hasGeneratedTracks
+                          ? 'bg-spotify text-black'
+                          : 'bg-zinc-800 text-zinc-400'
+                      }`}
+                    >
+                      1
+                    </span>
+                    <span className="text-xs font-bold uppercase tracking-wider text-white">
+                      Discovery
+                    </span>
+                  </div>
+                  <p className="text-[11.5px] text-zinc-400 leading-snug">
+                    Discover what you want to hear. Choose an emotional destination for your soundtrack.
+                  </p>
+                </div>
+
+                {/* Step 2: Creation */}
+                <div
+                  className={`p-3.5 rounded-xl border transition-all ${
+                    !hasGeneratedTracks
+                      ? 'bg-zinc-900/70 border-zinc-700/60'
+                      : 'bg-zinc-900/40 border-zinc-800/60'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span
+                      className={`w-6 h-6 rounded-full text-xs font-black flex items-center justify-center ${
+                        !hasGeneratedTracks
+                          ? 'bg-zinc-700 text-white'
+                          : 'bg-zinc-800 text-zinc-400'
+                      }`}
+                    >
+                      2
+                    </span>
+                    <span className="text-xs font-bold uppercase tracking-wider text-white">
+                      Creation
+                    </span>
+                  </div>
+                  <p className="text-[11.5px] text-zinc-400 leading-snug">
+                    Shape your soundscape. Every choice calibrates energy, transitions, and duration.
+                  </p>
+                </div>
+
+                {/* Step 3: Ownership */}
+                <div
+                  className={`p-3.5 rounded-xl border transition-all ${
+                    hasGeneratedTracks
+                      ? 'bg-emerald-500/15 border-emerald-500/50 shadow-md shadow-emerald-500/10'
+                      : 'bg-zinc-900/40 border-zinc-800/60 opacity-60'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span
+                      className={`w-6 h-6 rounded-full text-xs font-black flex items-center justify-center ${
+                        hasGeneratedTracks
+                          ? 'bg-spotify text-black'
+                          : 'bg-zinc-800 text-zinc-500'
+                      }`}
+                    >
+                      3
+                    </span>
+                    <span className="text-xs font-bold uppercase tracking-wider text-white">
+                      Ownership
+                    </span>
+                  </div>
+                  <p className="text-[11.5px] text-zinc-400 leading-snug">
+                    Your personal soundtrack. Curated by your choices, refined to your vision.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* =========================================================================
                 STAGE 1: CHOOSE YOUR LISTENING EXPERIENCE (12 Core Intentions)
                ========================================================================= */}
             <div className="bg-zinc-950/85 border border-zinc-800/80 rounded-2xl p-5 shadow-2xl backdrop-blur-md space-y-4">
@@ -297,10 +425,10 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
                 <div>
                   <h3 className="text-sm font-bold text-white flex items-center gap-2">
                     <span className="w-5 h-5 rounded-full bg-spotify/20 border border-spotify/50 text-spotify text-[11px] font-black flex items-center justify-center">1</span>
-                    <span>Stage 1: Choose Your Experience</span>
+                    <span>1. Discovery — Discover Your Soundtrack</span>
                   </h3>
                   <p className="text-xs text-zinc-400 mt-0.5">
-                    Select an intention to load its recommended parameters. (Generation happens in Stage 3).
+                    What emotional space do you want to explore? Choose an intention to guide your musical journey.
                   </p>
                 </div>
 
@@ -389,20 +517,20 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
             </div>
 
             {/* =========================================================================
-                STAGE 2: FINE-TUNE THE EXPERIENCE (Controls & Contextual Options)
+                STAGE 2: CREATION — SHAPE THE SOUNDSCAPE
                ========================================================================= */}
             <div className="bg-zinc-950/85 border border-zinc-800/80 rounded-2xl p-5 shadow-2xl backdrop-blur-md space-y-4">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-3">
                 <div>
                   <h3 className="text-sm font-bold text-white flex items-center gap-2">
                     <span className="w-5 h-5 rounded-full bg-spotify/20 border border-spotify/50 text-spotify text-[11px] font-black flex items-center justify-center">2</span>
-                    <span>Stage 2: Fine-Tune the Experience</span>
+                    <span>2. Creation — Shape the Soundscape</span>
                     <span className="text-xs text-zinc-400 font-normal ml-2">
                       (Configured for <strong className="text-spotify">{activeIntentConfig.name}</strong>)
                     </span>
                   </h3>
                   <p className="text-xs text-zinc-400 mt-0.5">
-                    Adjust primary musical parameters or use the recommended preset defaults.
+                    Make this journey yours. Fine-tune duration, energy progression, transition flow, and vocals.
                   </p>
                 </div>
                 <div className="text-xs text-zinc-400 font-mono">
@@ -733,15 +861,15 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
             </div>
 
             {/* =========================================================================
-                STAGE 3: GENERATE PLAYLIST (Action Bar + Results Display)
+                STAGE 3: SYNTHESIZE — BRING YOUR SOUNDTRACK TO LIFE
                ========================================================================= */}
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 rounded-2xl bg-zinc-950/90 border border-zinc-800 shadow-xl backdrop-blur-md">
               <div className="flex items-center gap-3">
                 <span className="w-6 h-6 rounded-full bg-spotify/20 border border-spotify/50 text-spotify text-xs font-black flex items-center justify-center">3</span>
                 <div>
-                  <h4 className="text-sm font-bold text-white">Stage 3: Generate Your Curated Playlist</h4>
+                  <h4 className="text-sm font-bold text-white">3. Synthesize — Bring Your Soundtrack to Life</h4>
                   <p className="text-xs text-zinc-400">
-                    Ready to curate <strong className="text-spotify">{flowControls.targetDurationMins || activeIntentConfig.default_duration_mins} minutes</strong> for {activeIntentConfig.name}.
+                    Ready to curate <strong className="text-spotify">{flowControls.targetDurationMins || activeIntentConfig.default_duration_mins} minutes</strong> for {activeIntentConfig.name} from your {likedTracks.length} liked songs.
                   </p>
                 </div>
               </div>
@@ -763,17 +891,475 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
                 ) : hasGeneratedTracks ? (
                   <>
                     <RotateCw className="w-5 h-5 text-black" />
-                    <span>Re-Generate Playlist</span>
+                    <span>Re-Synthesize Soundtrack</span>
                   </>
                 ) : (
                   <>
                     <Sparkles className="w-5 h-5 fill-current" />
-                    <span>Generate Playlist</span>
+                    <span>Synthesize My Flow</span>
                     <ArrowRight className="w-4 h-4 ml-1" />
                   </>
                 )}
               </button>
             </div>
+
+            {/* =========================================================================
+                MOMENT 3: OWNERSHIP — FINAL REVEAL & SATISFACTION REFLECTION
+               ========================================================================= */}
+            {hasGeneratedTracks && (
+              <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                {/* Reveal Card */}
+                <div className="relative overflow-hidden bg-gradient-to-br from-zinc-950 via-zinc-900/90 to-emerald-950/40 border border-emerald-500/30 rounded-2xl p-6 sm:p-8 shadow-2xl backdrop-blur-md">
+                  {/* Subtle Ambient Glow */}
+                  <div className="absolute -top-20 -right-20 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+
+                  <div className="relative z-10 space-y-6">
+                    {/* Header with memorable reveal copy */}
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                      <div>
+                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-spotify/20 border border-spotify/40 text-spotify text-[11px] font-black uppercase tracking-wider mb-2.5">
+                          <Sparkles className="w-3.5 h-3.5 fill-current" />
+                          <span>Personal Authorship</span>
+                        </div>
+                        <h2 className="text-2xl sm:text-4xl font-black text-white tracking-tight">
+                          You made this flow.
+                        </h2>
+                        <p className="text-sm sm:text-base text-emerald-300 font-medium mt-1">
+                          Your taste. Your choices. Your soundtrack.
+                        </p>
+                      </div>
+
+                      {/* Explicit Export Button (Ownership CTA) */}
+                      <button
+                        onClick={exportToSpotify}
+                        disabled={isExporting}
+                        className={`flex items-center gap-2 px-6 py-3 rounded-full font-bold text-xs uppercase tracking-wider transition-all duration-200 shadow-xl border shrink-0 ${
+                          isExporting
+                            ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border-zinc-700'
+                            : 'bg-spotify hover:bg-spotify-hover text-black hover:scale-105 active:scale-95 shadow-spotify/25'
+                        }`}
+                        title="Export your curated soundtrack to Spotify"
+                      >
+                        {isExporting ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin text-black" />
+                            <span>Exporting...</span>
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
+                              <path d="M12 2C6.477 2 2 6.477 2 12c0 5.524 4.477 10 10 10s10-4.476 10-10c0-5.523-4.477-10-10-10zm4.587 14.428a.627.627 0 0 1-.861.208c-2.358-1.441-5.327-1.767-8.825-.968a.627.627 0 1 1-.28-1.223c3.829-.875 7.119-.508 9.758 1.121.298.183.391.573.208.862zm1.226-2.724a.784.784 0 0 1-1.079.258c-2.7-1.66-6.816-2.14-10.01-1.171a.785.785 0 0 1-.466-1.5c3.649-1.107 8.2-.577 11.297 1.334.356.219.472.684.258 1.079zm.106-2.836C14.685 9.07 9.35 8.89 6.262 9.827a.942.942 0 1 1-.55-1.802c3.541-1.075 9.444-.863 13.208 1.37a.942.942 0 1 1-.999 1.603z" />
+                            </svg>
+                            <span>Export Flow to Spotify</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Personalized Summary Grid */}
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-2">
+                      <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800">
+                        <span className="text-[10px] text-zinc-400 uppercase tracking-wider block font-semibold">
+                          Experience
+                        </span>
+                        <span className="text-xs font-bold text-white truncate block mt-0.5">
+                          {activeIntentConfig.name}
+                        </span>
+                        <span className="text-[10px] text-zinc-500 truncate block">
+                          {activeIntentConfig.badge}
+                        </span>
+                      </div>
+
+                      <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800">
+                        <span className="text-[10px] text-zinc-400 uppercase tracking-wider block font-semibold">
+                          Duration
+                        </span>
+                        <span className="text-xs font-bold text-spotify font-mono block mt-0.5">
+                          {formatDuration(totalDurationMs)}
+                        </span>
+                        <span className="text-[10px] text-zinc-500 block">
+                          {flowTracks.length} tracks sequenced
+                        </span>
+                      </div>
+
+                      <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800">
+                        <span className="text-[10px] text-zinc-400 uppercase tracking-wider block font-semibold">
+                          Energy & Intensity
+                        </span>
+                        <span className="text-xs font-bold text-amber-300 capitalize block mt-0.5">
+                          {flowControls.intensity || 'balanced'} ({avgEnergy}%)
+                        </span>
+                        <span className="text-[10px] text-zinc-500 block">
+                          Peak {peakEnergy}% climax
+                        </span>
+                      </div>
+
+                      <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800">
+                        <span className="text-[10px] text-zinc-400 uppercase tracking-wider block font-semibold">
+                          Transition Flow
+                        </span>
+                        <span className="text-xs font-bold text-cyan-300 capitalize block mt-0.5">
+                          {flowControls.transitionStyle || 'natural'}
+                        </span>
+                        <span className="text-[10px] text-zinc-500 block">
+                          Cadence & BPM locked
+                        </span>
+                      </div>
+
+                      <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800">
+                        <span className="text-[10px] text-zinc-400 uppercase tracking-wider block font-semibold">
+                          Vocal Balance
+                        </span>
+                        <span className="text-xs font-bold text-rose-300 capitalize block mt-0.5">
+                          {flowControls.vocals || 'mixed'}
+                        </span>
+                        <span className="text-[10px] text-zinc-500 block">
+                          {flowControls.vocals === 'instrumental' ? 'Zero vocal distraction' : 'Lyrical presence'}
+                        </span>
+                      </div>
+
+                      <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800">
+                        <span className="text-[10px] text-zinc-400 uppercase tracking-wider block font-semibold">
+                          Sonic Palette
+                        </span>
+                        <span className="text-xs font-bold text-violet-300 truncate block mt-0.5">
+                          {flowControls.genrePreference && flowControls.genrePreference !== 'all'
+                            ? flowControls.genrePreference
+                            : curatedGenres.length > 0
+                            ? curatedGenres.slice(0, 2).join(', ')
+                            : 'Personal Blend'}
+                        </span>
+                        <span className="text-[10px] text-zinc-500 block truncate">
+                          From {likedTracks.length} saved tracks
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Creative Attribution Note */}
+                    <p className="text-xs text-zinc-400 italic">
+                      This soundtrack was personally curated through your choices. WaveFlow acted as your intelligent assistant to ensure harmonic transitions and rhythmic continuity.
+                    </p>
+
+                    {/* Satisfaction Question & Actions */}
+                    <div className="pt-5 border-t border-zinc-800/90">
+                      {flowFeedback === 'confirmed' ? (
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl bg-emerald-950/30 border border-emerald-500/40 animate-in fade-in duration-300">
+                          <div className="flex items-center gap-2.5">
+                            <CheckCircle2 className="w-5 h-5 text-spotify shrink-0" />
+                            <div>
+                              <span className="text-sm font-bold text-white">This is your Flow.</span>
+                              <p className="text-xs text-zinc-300 mt-0.5">
+                                Satisfaction confirmed. Your soundtrack is ready to enjoy or export to Spotify.
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              onClick={startRefinement}
+                              className="text-xs text-zinc-400 hover:text-white underline px-3 py-1.5 transition-colors"
+                            >
+                              Refine Parameters
+                            </button>
+                            <button
+                              onClick={exportToSpotify}
+                              disabled={isExporting}
+                              className="px-4 py-2 rounded-full bg-spotify hover:bg-spotify-hover text-black font-bold text-xs uppercase tracking-wider transition-all"
+                            >
+                              Export
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl bg-zinc-900/60 border border-zinc-800/80">
+                          <div>
+                            <h3 className="text-base font-bold text-white flex items-center gap-2">
+                              <span>Is this the flow you imagined?</span>
+                            </h3>
+                            <p className="text-xs text-zinc-400 mt-0.5">
+                              Listen to the set, explore the energy wave, or adjust any parameter to match your vision.
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2.5 shrink-0">
+                            <button
+                              onClick={confirmFlowSatisfaction}
+                              className="flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-spotify hover:bg-spotify-hover text-black font-extrabold text-xs uppercase tracking-wider transition-all hover:scale-105 active:scale-95 shadow-md shadow-spotify/20"
+                            >
+                              <Check className="w-4 h-4 stroke-[3]" />
+                              <span>Yes, this is my Flow</span>
+                            </button>
+
+                            <button
+                              onClick={startRefinement}
+                              className={`flex items-center gap-1.5 px-5 py-2.5 rounded-full font-bold text-xs uppercase tracking-wider transition-all border ${
+                                isRefining
+                                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                  : 'bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 hover:text-white border-zinc-700'
+                              }`}
+                            >
+                              <Sliders className="w-3.5 h-3.5" />
+                              <span>Almost, let me refine it</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Refinement Suite: Non-destructive parameter adjustments */}
+                {isRefining && (
+                  <div className="bg-zinc-950/90 border border-amber-500/30 rounded-2xl p-5 sm:p-6 shadow-2xl backdrop-blur-md space-y-5 animate-in fade-in duration-300">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-7 h-7 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center">
+                          <SlidersHorizontal className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-white">Refine Without Restarting</h3>
+                          <p className="text-xs text-zinc-400">
+                            Tune specific parameters below. Your current playlist remains active and listening is uninterrupted.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {storedPreviousResult && (
+                          <button
+                            onClick={cancelRefinement}
+                            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white text-xs font-semibold transition-all border border-zinc-700"
+                            title="Revert any changes and keep your original flow"
+                          >
+                            <Undo2 className="w-3.5 h-3.5" />
+                            <span>Keep Original Flow</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 6 Targeted Refinement Controls */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
+                      {/* Control 1: Intention Selection */}
+                      <div className="p-3 bg-zinc-900/60 border border-zinc-800/80 rounded-xl space-y-2">
+                        <label className="text-zinc-300 font-semibold flex items-center justify-between">
+                          <span>1. Listening Intention</span>
+                          <span className="text-spotify font-mono text-[11px]">{activeIntentConfig.badge}</span>
+                        </label>
+                        <select
+                          value={flowIntent}
+                          onChange={(e) => setFlowIntent(e.target.value as CognitiveFlowIntentId)}
+                          className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-lg p-2 text-xs focus:outline-none focus:border-spotify"
+                        >
+                          {uniqueIntents.map((intent) => (
+                            <option key={intent.id} value={intent.id}>
+                              {intent.name} ({intent.badge})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Control 2: Duration */}
+                      <div className="p-3 bg-zinc-900/60 border border-zinc-800/80 rounded-xl space-y-2">
+                        <label className="text-zinc-300 font-semibold flex items-center justify-between">
+                          <span>2. Playlist Duration</span>
+                          <span className="text-spotify font-mono font-bold">
+                            {flowControls.targetDurationMins || activeIntentConfig.default_duration_mins}m
+                          </span>
+                        </label>
+                        <div className="grid grid-cols-6 gap-1">
+                          {[30, 45, 60, 75, 90, 120].map((dur) => (
+                            <button
+                              key={dur}
+                              onClick={() => setFlowControls({ targetDurationMins: dur })}
+                              className={`py-1 rounded text-[11px] font-mono font-bold transition-all ${
+                                (flowControls.targetDurationMins || activeIntentConfig.default_duration_mins) === dur
+                                  ? 'bg-spotify text-black'
+                                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white'
+                              }`}
+                            >
+                              {dur}m
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Control 3: Energy Level */}
+                      <div className="p-3 bg-zinc-900/60 border border-zinc-800/80 rounded-xl space-y-2">
+                        <label className="text-zinc-300 font-semibold flex items-center justify-between">
+                          <span>3. Energy Level</span>
+                          <span className="text-amber-400 capitalize font-mono">{flowControls.intensity || 'balanced'}</span>
+                        </label>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {[
+                            { id: 'calm', label: 'Calm (-8%)' },
+                            { id: 'balanced', label: 'Balanced' },
+                            { id: 'intense', label: 'Intense (+8%)' }
+                          ].map((lvl) => (
+                            <button
+                              key={lvl.id}
+                              onClick={() => setFlowControls({ intensity: lvl.id as any })}
+                              className={`py-1.5 rounded text-[11px] font-semibold transition-all ${
+                                (flowControls.intensity || 'balanced') === lvl.id
+                                  ? 'bg-amber-400 text-black font-bold'
+                                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white'
+                              }`}
+                            >
+                              {lvl.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Control 4: Transition Style */}
+                      <div className="p-3 bg-zinc-900/60 border border-zinc-800/80 rounded-xl space-y-2">
+                        <label className="text-zinc-300 font-semibold flex items-center justify-between">
+                          <span>4. Transition Style</span>
+                          <span className="text-cyan-400 capitalize font-mono">{flowControls.transitionStyle || 'natural'}</span>
+                        </label>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {[
+                            { id: 'smooth', label: 'Smooth' },
+                            { id: 'natural', label: 'Natural' },
+                            { id: 'dynamic', label: 'Dynamic' }
+                          ].map((style) => (
+                            <button
+                              key={style.id}
+                              onClick={() => setFlowControls({ transitionStyle: style.id as any })}
+                              className={`py-1.5 rounded text-[11px] font-semibold transition-all ${
+                                (flowControls.transitionStyle || 'natural') === style.id
+                                  ? 'bg-cyan-400 text-black font-bold'
+                                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white'
+                              }`}
+                            >
+                              {style.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Control 5: Vocal Presence */}
+                      <div className="p-3 bg-zinc-900/60 border border-zinc-800/80 rounded-xl space-y-2">
+                        <label className="text-zinc-300 font-semibold flex items-center justify-between">
+                          <span>5. Vocal Presence</span>
+                          <span className="text-rose-400 capitalize font-mono">{flowControls.vocals || 'mixed'}</span>
+                        </label>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {[
+                            { id: 'instrumental', label: 'Instrumental' },
+                            { id: 'mixed', label: 'Mixed' },
+                            { id: 'welcome', label: 'Vocal-Forward' }
+                          ].map((voc) => (
+                            <button
+                              key={voc.id}
+                              onClick={() => setFlowControls({ vocals: voc.id as any })}
+                              className={`py-1.5 rounded text-[11px] font-semibold transition-all ${
+                                (flowControls.vocals || 'mixed') === voc.id
+                                  ? 'bg-rose-400 text-black font-bold'
+                                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white'
+                              }`}
+                            >
+                              {voc.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Control 6: Preferred Genre Focus */}
+                      <div className="p-3 bg-zinc-900/60 border border-zinc-800/80 rounded-xl space-y-2">
+                        <label className="text-zinc-300 font-semibold flex items-center justify-between">
+                          <span>6. Preferred Genre Focus</span>
+                          <span className="text-violet-400 capitalize font-mono">
+                            {flowControls.genrePreference && flowControls.genrePreference !== 'all'
+                              ? flowControls.genrePreference
+                              : 'All Genres'}
+                          </span>
+                        </label>
+                        <div className="flex flex-wrap gap-1 max-h-16 overflow-y-auto">
+                          {availableLibraryGenres.slice(0, 7).map((genre) => {
+                            const val = genre === 'All Genres' ? 'all' : genre.toLowerCase();
+                            const isSelected = (flowControls.genrePreference || 'all').toLowerCase() === val;
+                            return (
+                              <button
+                                key={genre}
+                                onClick={() => {
+                                  setCustomGenreInput('');
+                                  setFlowControls({ genrePreference: val });
+                                }}
+                                className={`px-2 py-0.5 rounded text-[10px] font-medium transition-all ${
+                                  isSelected
+                                    ? 'bg-violet-400 text-black font-bold'
+                                    : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                                }`}
+                              >
+                                {genre}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="flex gap-1.5 pt-1">
+                          <input
+                            type="text"
+                            placeholder="Or type custom genre (e.g. Ska, Funk)..."
+                            value={customGenreInput}
+                            onChange={(e) => {
+                              setCustomGenreInput(e.target.value);
+                              if (e.target.value.trim()) {
+                                setFlowControls({ genrePreference: e.target.value.trim() });
+                              }
+                            }}
+                            className="flex-1 bg-zinc-800 border border-zinc-700 text-white rounded px-2 py-1 text-[11px] placeholder:text-zinc-500 focus:outline-none focus:border-violet-400"
+                          />
+                          {customGenreInput && (
+                            <button
+                              onClick={() => {
+                                setCustomGenreInput('');
+                                setFlowControls({ genrePreference: 'all' });
+                              }}
+                              className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white text-[10px]"
+                            >
+                              Reset
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Refinement Action Submission */}
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+                      <span className="text-xs text-zinc-400 italic">
+                        Playback continues uninterrupted while your new flow synthesizes.
+                      </span>
+
+                      <div className="flex items-center gap-2.5 w-full sm:w-auto">
+                        <button
+                          onClick={cancelRefinement}
+                          className="flex-1 sm:flex-initial px-4 py-2.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white text-xs font-semibold transition-all border border-zinc-700"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={generateFlow}
+                          disabled={isGenerating}
+                          className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-6 py-2.5 rounded-full bg-spotify hover:bg-spotify-hover text-black font-black text-xs uppercase tracking-wider transition-all shadow-lg hover:scale-105 active:scale-95 shadow-spotify/25"
+                        >
+                          {isGenerating ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin text-black" />
+                              <span>Synthesizing...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="w-4 h-4 fill-current" />
+                              <span>Synthesize Refined Flow</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Generated Set Metrics & Overview Cards */}
             {hasGeneratedTracks && (
