@@ -23,6 +23,18 @@ export type FlowPhaseName =
   | 'Climax'
   | 'Outro';
 
+export type FlowStyleId = 'classic' | 'festival' | 'deep' | 'relentless';
+
+export interface FlowStylePreset {
+  id: FlowStyleId;
+  name: string;
+  tagline: string;
+  badge: string;
+  description: string;
+  phaseWeights: { [key in FlowPhaseName]: number }; // percentage weights summing to 100
+  energyRanges?: { [key in FlowPhaseName]?: [number, number] };
+}
+
 export interface FlowPhaseConfig {
   name: FlowPhaseName;
   description: string;

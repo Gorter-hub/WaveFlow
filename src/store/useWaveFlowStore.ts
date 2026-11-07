@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import {
   FlowPhaseName,
+  FlowStyleId,
   GenerationStatus,
   SpotifyAuthTokens,
   Track,
@@ -37,6 +38,8 @@ interface WaveFlowStore {
   flowTracks: Track[];
   activeTrack: Track | null;
   selectedPhaseFilter: FlowPhaseName | 'all';
+  targetTrackCount: number;
+  flowStyle: FlowStyleId;
   activeTab: 'home' | 'generate' | 'library';
 
   // Generation & Export State
@@ -54,6 +57,8 @@ interface WaveFlowStore {
   setActiveTab: (tab: 'home' | 'generate' | 'library') => void;
   setActiveTrack: (track: Track | null) => void;
   setSelectedPhaseFilter: (phase: FlowPhaseName | 'all') => void;
+  setTargetTrackCount: (count: number) => void;
+  setFlowStyle: (style: FlowStyleId) => void;
   clearError: () => void;
 
   // Core Flow Workflow
@@ -81,6 +86,8 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
   flowTracks: [],
   activeTrack: null,
   selectedPhaseFilter: 'all',
+  targetTrackCount: 50,
+  flowStyle: 'classic',
   activeTab: 'generate',
 
   status: {
@@ -124,7 +131,7 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
   setMockMode: (enabled: boolean) => {
     if (enabled) {
       const mockTracks = generateMockLikedTracks();
-      const initialFlow = generateDJCurve(mockTracks);
+      const initialFlow = generateDJCurve(mockTracks, get().targetTrackCount, get().flowStyle);
       set({
         isMockMode: true,
         isAuthenticated: true,
@@ -168,6 +175,8 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
   setActiveTab: (tab) => set({ activeTab: tab }),
   setActiveTrack: (track) => set({ activeTrack: track }),
   setSelectedPhaseFilter: (phase) => set({ selectedPhaseFilter: phase }),
+  setTargetTrackCount: (count) => set({ targetTrackCount: count }),
+  setFlowStyle: (style) => set({ flowStyle: style }),
   clearError: () => set({ errorMessage: null }),
 
   login: async () => {
@@ -330,7 +339,8 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
       });
 
       await new Promise((r) => setTimeout(r, 400));
-      const orderedFlow = generateDJCurve(scoredTracks);
+      const { targetTrackCount, flowStyle } = get();
+      const orderedFlow = generateDJCurve(scoredTracks, targetTrackCount, flowStyle);
 
       set({
         flowTracks: orderedFlow,

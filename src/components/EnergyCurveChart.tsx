@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { Track, FlowPhaseConfig } from '../types';
-import { PHASE_CONFIGS } from '../algorithm/curveGenerator';
+import { Track, FlowPhaseConfig, FlowStyleId } from '../types';
+import { getPhaseConfigsForStyle } from '../algorithm/curveGenerator';
 import { getEnergyColor } from '../utils/formatters';
 
 interface EnergyCurveChartProps {
@@ -8,16 +8,23 @@ interface EnergyCurveChartProps {
   activeTrackId?: string;
   onSelectTrack?: (track: Track) => void;
   selectedPhase?: string;
+  styleId?: FlowStyleId;
 }
 
 export const EnergyCurveChart: React.FC<EnergyCurveChartProps> = ({
   tracks,
   activeTrackId,
   onSelectTrack,
-  selectedPhase
+  selectedPhase,
+  styleId = 'classic'
 }) => {
   const [hoveredTrack, setHoveredTrack] = useState<Track | null>(null);
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
+
+  const phaseConfigs = useMemo(
+    () => getPhaseConfigsForStyle(styleId, tracks.length || 50),
+    [styleId, tracks.length]
+  );
 
   // SVG dimensions & padding
   const width = 1000;
@@ -80,7 +87,7 @@ export const EnergyCurveChart: React.FC<EnergyCurveChartProps> = ({
     if (tracks.length === 0) return [];
     let currentX = padding.left;
 
-    return PHASE_CONFIGS.map((phase) => {
+    return phaseConfigs.map((phase) => {
       const phaseWidth = (phase.trackCount / tracks.length) * chartWidth;
       const region = {
         phase,
@@ -91,7 +98,7 @@ export const EnergyCurveChart: React.FC<EnergyCurveChartProps> = ({
       currentX += phaseWidth;
       return region;
     });
-  }, [tracks.length, chartWidth, padding.left]);
+  }, [tracks.length, chartWidth, padding.left, phaseConfigs]);
 
   if (tracks.length === 0) {
     return (
@@ -116,13 +123,13 @@ export const EnergyCurveChart: React.FC<EnergyCurveChartProps> = ({
             DJ Energy Dynamics Curve
           </h3>
           <span className="text-xs text-zinc-500 font-mono">
-            (50 Tracks • 6 Flow Phases)
+            ({tracks.length} Tracks • 6 Flow Phases)
           </span>
         </div>
 
         {/* Phase mini pills */}
         <div className="hidden lg:flex items-center gap-1.5 text-[11px]">
-          {PHASE_CONFIGS.map((cfg) => {
+          {phaseConfigs.map((cfg) => {
             const isSelected = selectedPhase === cfg.name;
             return (
               <span

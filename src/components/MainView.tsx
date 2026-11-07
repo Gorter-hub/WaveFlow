@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { useWaveFlowStore } from '../store/useWaveFlowStore';
 import { EnergyCurveChart } from './EnergyCurveChart';
 import { TracklistTable } from './TracklistTable';
-import { PHASE_CONFIGS } from '../algorithm/curveGenerator';
+import { PHASE_CONFIGS, FLOW_STYLE_PRESETS, getPhaseConfigsForStyle } from '../algorithm/curveGenerator';
+import { FlowStyleId } from '../types';
 import { formatDuration } from '../utils/formatters';
 import {
   Sparkles,
@@ -34,6 +35,10 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings }) => {
     selectedPhaseFilter,
     setSelectedPhaseFilter,
     isMockMode,
+    targetTrackCount,
+    setTargetTrackCount,
+    flowStyle,
+    setFlowStyle,
     errorMessage,
     clearError
   } = useWaveFlowStore();
@@ -184,6 +189,83 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings }) => {
               </div>
             )}
 
+            
+            {/* Set Style & Track Count Customizer Bar */}
+            <div className="bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-4 md:p-5 shadow-xl backdrop-blur-md space-y-4">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-3">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-spotify" />
+                    <span>Estilo del Flow & Longitud del Set</span>
+                  </h3>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    Personaliza la narrativa de tu concierto: desde fiesta explosiva hasta viaje melódico profundo.
+                  </p>
+                </div>
+
+                {/* Set Length Selector */}
+                <div className="flex items-center gap-1.5 bg-zinc-900 p-1 rounded-xl border border-zinc-800 self-stretch sm:self-auto justify-between sm:justify-start">
+                  <span className="text-[11px] font-medium text-zinc-400 px-2 uppercase tracking-wider hidden sm:inline">
+                    Pistas:
+                  </span>
+                  {[25, 50, 75, 100].map((count) => (
+                    <button
+                      key={count}
+                      onClick={() => setTargetTrackCount(count)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition-all ${
+                        targetTrackCount === count
+                          ? 'bg-spotify text-black shadow-md'
+                          : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                      }`}
+                    >
+                      {count}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 4 Flow Styles Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {(Object.values(FLOW_STYLE_PRESETS) as any[]).map((style: any) => {
+                  const isSelected = flowStyle === style.id;
+                  return (
+                    <button
+                      key={style.id}
+                      onClick={() => setFlowStyle(style.id as FlowStyleId)}
+                      className={`text-left p-3.5 rounded-xl border transition-all relative group flex flex-col justify-between ${
+                        isSelected
+                          ? 'bg-zinc-900 border-spotify shadow-lg shadow-spotify/15 ring-1 ring-spotify'
+                          : 'bg-zinc-900/50 border-zinc-800/80 hover:border-zinc-700 hover:bg-zinc-900/80'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span
+                            className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                              isSelected
+                                ? 'bg-spotify/20 text-spotify border-spotify/30'
+                                : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                            }`}
+                          >
+                            {style.badge}
+                          </span>
+                          {isSelected && (
+                            <span className="w-2 h-2 rounded-full bg-spotify animate-ping" />
+                          )}
+                        </div>
+                        <h4 className="text-sm font-bold text-white group-hover:text-spotify transition-colors">
+                          {style.name}
+                        </h4>
+                        <p className="text-[11px] text-zinc-400 mt-1 line-clamp-2 leading-relaxed">
+                          {style.tagline}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* SVG Energy Curve Visualization Chart */}
             <div className="space-y-2">
               <EnergyCurveChart
@@ -191,6 +273,7 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings }) => {
                 activeTrackId={activeTrack?.id}
                 onSelectTrack={setActiveTrack}
                 selectedPhase={selectedPhaseFilter !== 'all' ? selectedPhaseFilter : undefined}
+                styleId={flowStyle}
               />
             </div>
 
@@ -206,7 +289,7 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings }) => {
                         : 'bg-zinc-800/80 text-zinc-300 hover:bg-zinc-700/80 hover:text-white'
                     }`}
                   >
-                    All 50 Tracks
+                    All {flowTracks.length || targetTrackCount} Tracks
                   </button>
 
                   {PHASE_CONFIGS.map((phase) => {
