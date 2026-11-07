@@ -2,7 +2,8 @@ import {
   GeminiEnergyScore,
   Track,
   CognitiveFlowIntentId,
-  CuratedSetResult
+  CuratedSetResult,
+  FlowGenerationControls
 } from '../types';
 import { COGNITIVE_INTENTS, generateCognitiveDJFlow } from '../algorithm/curveGenerator';
 
@@ -72,7 +73,8 @@ export async function curateCognitiveFlowWithGemini(
   pool: Track[],
   intentId: CognitiveFlowIntentId,
   apiKey?: string,
-  onProgress?: (progress: number, message: string) => void
+  onProgress?: (progress: number, message: string) => void,
+  controls?: FlowGenerationControls
 ): Promise<CuratedSetResult> {
   const effectiveKey = apiKey || import.meta.env.VITE_GEMINI_API_KEY || '';
   const intentConfig = COGNITIVE_INTENTS[intentId] || COGNITIVE_INTENTS.deep_focus;
@@ -95,7 +97,7 @@ export async function curateCognitiveFlowWithGemini(
       onProgress(90, 'Applying valence continuity and anti-fatigue curves...');
       await new Promise((r) => setTimeout(r, 150));
     }
-    return generateCognitiveDJFlow(pool, intentId);
+    return generateCognitiveDJFlow(pool, intentId, controls);
   }
 
   try {
@@ -117,12 +119,16 @@ export async function curateCognitiveFlowWithGemini(
       vibe: t.mood_vibe
     }));
 
+    const targetMinutes =
+      controls?.targetDurationMins ||
+      (intentConfig.duration_target_mins[0] + intentConfig.duration_target_mins[1]) / 2;
+
     const systemPrompt = `You are a Lead Product Architect and Cognitive Music Director.
 Synthesize an intelligent neuroscience-backed DJ set from the provided track pool.
 
 INTENT: "${intentConfig.name}" (${intentConfig.badge})
 NEUROSCIENCE SPEC: ${intentConfig.neuroscience_rationale}
-TARGET DURATION: ${intentConfig.duration_target_mins[0]} to ${intentConfig.duration_target_mins[1]} minutes.
+TARGET DURATION: approximately ${targetMinutes} minutes.
 BPM TRANSITION WINDOW: Adjacent tracks must stay within ±${intentConfig.bpm_tolerance} BPM.
 ${intentConfig.vocal_threshold_max ? `VOCAL LIMIT: Maximum vocal presence of ${intentConfig.vocal_threshold_max}% (instrumental priority).` : ''}
 
@@ -135,7 +141,7 @@ ${intentConfig.phases
   .join('\n')}
 
 INSTRUCTIONS:
-1. Select tracks from the pool whose cumulative duration fits the target minutes (${intentConfig.duration_target_mins[0]}-${intentConfig.duration_target_mins[1]} mins). DO NOT use a fixed track count; pack by duration.
+1. Select tracks from the pool whose cumulative duration fits the target minutes (~${targetMinutes} mins). DO NOT use a fixed track count; pack by duration.
 2. Order tracks sequentially respecting safe adjacent BPM transitions and smooth emotional valence continuity.
 3. Return ONLY a valid JSON object matching this schema:
 {
@@ -173,7 +179,7 @@ INSTRUCTIONS:
 
     if (!response.ok) {
       console.warn(`Gemini cognitive endpoint returned ${response.status}. Falling back to local engine.`);
-      return generateCognitiveDJFlow(pool, intentId);
+      return generateCognitiveDJFlow(pool, intentId, controls);
     }
 
     const data = await response.json();
@@ -230,15 +236,16 @@ INSTRUCTIONS:
         computed_total_duration_ms: totalMs,
         computed_total_tracks: curatedSet.length,
         phases,
-        curated_set: curatedSet
+        curated_set: curatedSet,
+        applied_controls: controls
       };
     }
 
     // Fallback if parsed json didn't have adequate curated_set
-    return generateCognitiveDJFlow(pool, intentId);
+    return generateCognitiveDJFlow(pool, intentId, controls);
   } catch (error) {
     console.error('Gemini synthesis failed, using local engine:', error);
-    return generateCognitiveDJFlow(pool, intentId);
+    return generateCognitiveDJFlow(pool, intentId, controls);
   }
 }
 

@@ -2,11 +2,21 @@ export type CognitiveFlowIntentId =
   | 'deep_focus'
   | 'festival_explosive'
   | 'night_drive'
-  | 'genre_cadence';
+  | 'genre_cadence'
+  | 'relax_unwind'
+  | 'creative_flow'
+  | 'reading_study'
+  | 'morning_motivation';
 
 export type FlowPhaseName = string;
 export type FlowStyleId = CognitiveFlowIntentId;
 
+export interface FlowGenerationControls {
+  targetDurationMins?: number;
+  intensity?: 'calm' | 'balanced' | 'energetic';
+  transitionStyle?: 'seamless' | 'balanced' | 'adventurous';
+  vocals?: 'instrumental' | 'balanced' | 'welcome';
+}
 
 export interface CognitiveIntentConfig {
   id: CognitiveFlowIntentId;
@@ -16,11 +26,13 @@ export interface CognitiveIntentConfig {
   duration_target_mins: [number, number]; // [minMins, maxMins]
   target_energy_range: [number, number];
   bpm_tolerance: number; // max allowable BPM delta between adjacent tracks
-  vocal_threshold_max?: number; // max allowable vocal presence for focus
+  vocal_threshold_max?: number; // max allowable vocal presence for focus/study
   badge: string;
   color: string;
   accentGradient: string;
+  category: 'core' | 'extended';
   phases: CognitivePhaseTemplate[];
+  defaultControls: Required<FlowGenerationControls>;
 }
 
 export interface CognitivePhaseTemplate {
@@ -29,6 +41,7 @@ export interface CognitivePhaseTemplate {
   duration_ratio: number; // 0 to 1 proportion of total set duration
   target_energy_range: [number, number];
   target_valence_range: [number, number];
+  phaseType?: 'warmup' | 'build' | 'plateau' | 'reset' | 'climax' | 'cooldown';
   color: string;
   gradient: string;
 }
@@ -81,6 +94,7 @@ export interface CuratedSetResult {
   computed_total_tracks: number;
   phases: FlowPhaseConfig[];
   curated_set: Track[];
+  applied_controls?: FlowGenerationControls;
 }
 
 export interface GenerationStatus {

@@ -16,7 +16,16 @@ import {
   Brain,
   Moon,
   Zap,
-  Activity
+  Activity,
+  Coffee,
+  Palette,
+  BookOpen,
+  Sun,
+  SlidersHorizontal,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  Volume2
 } from 'lucide-react';
 
 interface MainViewProps {
@@ -41,12 +50,18 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
     syncLibrary,
     flowIntent,
     setFlowIntent,
+    flowControls,
+    setFlowControls,
     currentPhases,
     errorMessage,
     clearError
   } = useWaveFlowStore();
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [showExtendedIntents, setShowExtendedIntents] = useState(
+    COGNITIVE_INTENTS[flowIntent]?.category === 'extended'
+  );
+  const [showAdvancedControls, setShowAdvancedControls] = useState(false);
 
   const isGenerating =
     status.step === 'fetching' ||
@@ -79,8 +94,17 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
     deep_focus: <Brain className="w-5 h-5 text-emerald-400" />,
     festival_explosive: <Flame className="w-5 h-5 text-rose-400" />,
     night_drive: <Moon className="w-5 h-5 text-purple-400" />,
-    genre_cadence: <Zap className="w-5 h-5 text-amber-400" />
+    genre_cadence: <Zap className="w-5 h-5 text-amber-400" />,
+    relax_unwind: <Coffee className="w-5 h-5 text-cyan-400" />,
+    creative_flow: <Palette className="w-5 h-5 text-fuchsia-400" />,
+    reading_study: <BookOpen className="w-5 h-5 text-teal-400" />,
+    morning_motivation: <Sun className="w-5 h-5 text-orange-400" />
   };
+
+  const coreIntents = Object.values(COGNITIVE_INTENTS).filter((i) => i.category === 'core');
+  const extendedIntents = Object.values(COGNITIVE_INTENTS).filter((i) => i.category === 'extended');
+
+  const activeIntentConfig = COGNITIVE_INTENTS[flowIntent] || COGNITIVE_INTENTS.deep_focus;
 
   return (
     <main className="flex-1 overflow-y-auto bg-zinc-900 text-white relative flex flex-col h-[calc(100vh-6rem)]">
@@ -217,7 +241,7 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
               </div>
             </div>
 
-            {/* Cognitive Intent Selector Cards (Replaces manual track counts) */}
+            {/* Cognitive Intent Selector Container */}
             <div className="bg-zinc-950/85 border border-zinc-800/80 rounded-2xl p-5 shadow-2xl backdrop-blur-md space-y-4">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-3">
                 <div>
@@ -226,17 +250,29 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
                     <span>Cognitive Flow Intent · Single-Click Selection</span>
                   </h3>
                   <p className="text-xs text-zinc-400 mt-0.5">
-                    Track count and pacing arc are automatically calculated via neuroscience models. No manual sliders required.
+                    Track count and pacing arc are automatically calculated via neuroscience models.
                   </p>
                 </div>
-                <div className="text-xs text-zinc-400 font-mono">
-                  Pool: <span className="text-spotify font-bold">{likedTracks.length || 200} cached tracks</span>
+                <div className="flex items-center gap-3 text-xs text-zinc-400 font-mono">
+                  <span>Pool: <strong className="text-spotify">{likedTracks.length || 200} cached tracks</strong></span>
+                  <button
+                    onClick={() => setShowAdvancedControls(!showAdvancedControls)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-sans font-medium transition-colors ${
+                      showAdvancedControls
+                        ? 'border-spotify text-spotify bg-spotify/10'
+                        : 'border-zinc-700 text-zinc-300 hover:border-zinc-500'
+                    }`}
+                  >
+                    <SlidersHorizontal className="w-3.5 h-3.5" />
+                    <span>Set Tuning</span>
+                    {showAdvancedControls ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                  </button>
                 </div>
               </div>
 
-              {/* 4 Cognitive Intent Cards */}
+              {/* 4 Primary Core Intent Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-                {(Object.values(COGNITIVE_INTENTS) as any[]).map((intent) => {
+                {coreIntents.map((intent) => {
                   const isSelected = flowIntent === intent.id;
                   return (
                     <button
@@ -293,6 +329,189 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
                   );
                 })}
               </div>
+
+              {/* Extended Presets Drawer Toggle */}
+              <div className="pt-1">
+                <button
+                  onClick={() => setShowExtendedIntents(!showExtendedIntents)}
+                  className="flex items-center gap-2 text-xs font-semibold text-zinc-400 hover:text-white transition-colors"
+                >
+                  <span>More Listening Intentions ({extendedIntents.length})</span>
+                  {showExtendedIntents ? <ChevronUp className="w-4 h-4 text-spotify" /> : <ChevronDown className="w-4 h-4 text-zinc-500" />}
+                </button>
+
+                {/* 4 Extended Presets Cards */}
+                {showExtendedIntents && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 mt-3 pt-3 border-t border-zinc-800/60 animate-in fade-in duration-200">
+                    {extendedIntents.map((intent) => {
+                      const isSelected = flowIntent === intent.id;
+                      return (
+                        <button
+                          key={intent.id}
+                          onClick={() => setFlowIntent(intent.id)}
+                          className={`text-left p-3.5 rounded-xl border transition-all relative group flex flex-col justify-between ${
+                            isSelected
+                              ? 'bg-zinc-900 border-spotify shadow-xl shadow-spotify/15 ring-1 ring-spotify'
+                              : 'bg-zinc-900/40 border-zinc-800/70 hover:border-zinc-700 hover:bg-zinc-900/80'
+                          }`}
+                        >
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                {intentIcons[intent.id as CognitiveFlowIntentId]}
+                                <span
+                                  className={`text-[9.5px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                                    isSelected
+                                      ? 'bg-spotify/20 text-spotify border-spotify/40'
+                                      : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                                  }`}
+                                >
+                                  {intent.badge}
+                                </span>
+                              </div>
+                              {isSelected && (
+                                <span className="w-2 h-2 rounded-full bg-spotify animate-ping" />
+                              )}
+                            </div>
+
+                            <h4 className="text-sm font-bold text-white group-hover:text-spotify transition-colors">
+                              {intent.name}
+                            </h4>
+
+                            <p className="text-[11px] text-zinc-400 mt-1 leading-snug">
+                              {intent.tagline}
+                            </p>
+
+                            <p className="text-[10px] text-zinc-500 mt-1.5 line-clamp-2 italic">
+                              "{intent.neuroscience_rationale}"
+                            </p>
+                          </div>
+
+                          <div className="mt-3 pt-2 border-t border-zinc-800/60 flex items-center justify-between text-[10px] font-mono text-zinc-400">
+                            <span>±{intent.bpm_tolerance} BPM</span>
+                            <span className="text-zinc-500">{intent.phases.length} Phases</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Minimal Optional User Controls (Section 8) */}
+              {showAdvancedControls && (
+                <div className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800 mt-2 space-y-4 animate-in fade-in duration-200">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-zinc-200 uppercase tracking-wider flex items-center gap-1.5">
+                      <SlidersHorizontal className="w-3.5 h-3.5 text-spotify" />
+                      <span>Advanced Set Tuning (Optional)</span>
+                    </span>
+                    <span className="text-[11px] text-zinc-500 font-mono">
+                      Defaults calibrated to {activeIntentConfig.name}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+                    {/* Duration Control */}
+                    <div className="space-y-1.5">
+                      <label className="text-zinc-400 font-medium flex items-center gap-1">
+                        <Clock className="w-3 h-3 text-zinc-500" />
+                        <span>Target Duration</span>
+                      </label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[30, 45, 60, 75, 90, 120].map((dur) => (
+                          <button
+                            key={dur}
+                            onClick={() => setFlowControls({ targetDurationMins: dur })}
+                            className={`px-2.5 py-1 rounded-md text-[11px] font-mono transition-all ${
+                              flowControls.targetDurationMins === dur
+                                ? 'bg-spotify text-black font-bold'
+                                : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                            }`}
+                          >
+                            {dur}m
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Intensity Control */}
+                    <div className="space-y-1.5">
+                      <label className="text-zinc-400 font-medium flex items-center gap-1">
+                        <Activity className="w-3 h-3 text-zinc-500" />
+                        <span>Acoustic Intensity</span>
+                      </label>
+                      <div className="flex gap-1.5">
+                        {(['calm', 'balanced', 'energetic'] as const).map((lvl) => (
+                          <button
+                            key={lvl}
+                            onClick={() => setFlowControls({ intensity: lvl })}
+                            className={`flex-1 capitalize py-1 px-2 rounded-md text-[11px] font-medium transition-all ${
+                              flowControls.intensity === lvl
+                                ? 'bg-spotify text-black font-bold'
+                                : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                            }`}
+                          >
+                            {lvl}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Transition Style */}
+                    <div className="space-y-1.5">
+                      <label className="text-zinc-400 font-medium flex items-center gap-1">
+                        <Zap className="w-3 h-3 text-zinc-500" />
+                        <span>Transition Style</span>
+                      </label>
+                      <div className="flex gap-1.5">
+                        {(['seamless', 'balanced', 'adventurous'] as const).map((style) => (
+                          <button
+                            key={style}
+                            onClick={() => setFlowControls({ transitionStyle: style })}
+                            className={`flex-1 capitalize py-1 px-2 rounded-md text-[11px] font-medium transition-all ${
+                              flowControls.transitionStyle === style
+                                ? 'bg-spotify text-black font-bold'
+                                : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                            }`}
+                          >
+                            {style}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Vocals Presence */}
+                    <div className="space-y-1.5">
+                      <label className="text-zinc-400 font-medium flex items-center gap-1">
+                        <Volume2 className="w-3 h-3 text-zinc-500" />
+                        <span>Vocal Density</span>
+                      </label>
+                      <div className="flex gap-1.5">
+                        {(
+                          [
+                            { id: 'instrumental', label: 'Instrumental' },
+                            { id: 'balanced', label: 'Balanced' },
+                            { id: 'welcome', label: 'Welcome' }
+                          ] as const
+                        ).map((opt) => (
+                          <button
+                            key={opt.id}
+                            onClick={() => setFlowControls({ vocals: opt.id })}
+                            className={`flex-1 py-1 px-1.5 rounded-md text-[10.5px] font-medium transition-all ${
+                              flowControls.vocals === opt.id
+                                ? 'bg-spotify text-black font-bold'
+                                : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Metrics & Overview Cards */}

@@ -7,7 +7,8 @@ import {
   GenerationStatus,
   SpotifyAuthTokens,
   Track,
-  UserProfile
+  UserProfile,
+  FlowGenerationControls
 } from '../types';
 import {
   clearStoredTokens,
@@ -100,6 +101,7 @@ interface WaveFlowStore {
   isPlaying: boolean;
   selectedPhaseFilter: string | 'all';
   flowIntent: CognitiveFlowIntentId;
+  flowControls: FlowGenerationControls;
   targetTrackCount: number;
   flowResult: CuratedSetResult | null;
   currentPhases: FlowPhaseConfig[];
@@ -127,6 +129,7 @@ interface WaveFlowStore {
   skipPrevious: () => void;
   setSelectedPhaseFilter: (phase: string | 'all') => void;
   setFlowIntent: (intent: CognitiveFlowIntentId) => void;
+  setFlowControls: (controls: Partial<FlowGenerationControls>) => void;
   setTargetTrackCount: (count: number) => void;
   clearError: () => void;
   syncLibrary: () => Promise<void>;
@@ -159,6 +162,7 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
   isPlaying: false,
   selectedPhaseFilter: 'all',
   flowIntent: 'deep_focus',
+  flowControls: { ...COGNITIVE_INTENTS.deep_focus.defaultControls },
   targetTrackCount: 22,
   flowResult: null,
   currentPhases: PHASE_CONFIGS,
@@ -229,7 +233,7 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
   setMockMode: (enabled: boolean) => {
     if (enabled) {
       const mockTracks = enrichTrackLibrary(generateMockLikedTracks());
-      const initialFlow = generateCognitiveDJFlow(mockTracks, get().flowIntent);
+      const initialFlow = generateCognitiveDJFlow(mockTracks, get().flowIntent, get().flowControls);
       saveCachedTracks(mockTracks);
       set({
         isMockMode: true,
@@ -321,11 +325,16 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
   setTargetTrackCount: (count) => set({ targetTrackCount: count }),
 
   setFlowIntent: (intent: CognitiveFlowIntentId) => {
-    set({ flowIntent: intent, selectedPhaseFilter: 'all' });
+    const defaultControls = { ...COGNITIVE_INTENTS[intent].defaultControls };
+    set({
+      flowIntent: intent,
+      flowControls: defaultControls,
+      selectedPhaseFilter: 'all'
+    });
     const { likedTracks } = get();
     // If tracks are already loaded, immediately preview the new cognitive arc
     if (likedTracks.length > 0) {
-      const preview = generateCognitiveDJFlow(likedTracks, intent);
+      const preview = generateCognitiveDJFlow(likedTracks, intent, defaultControls);
       set({
         flowTracks: preview.curated_set,
         flowResult: preview,
@@ -335,6 +344,27 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
         status: {
           step: 'ready',
           message: `${COGNITIVE_INTENTS[intent].name} arc generated: ${preview.computed_total_tracks} tracks (${Math.round(preview.computed_total_duration_ms / 60000)} mins).`,
+          progress: 100
+        }
+      });
+    }
+  },
+
+  setFlowControls: (controls: Partial<FlowGenerationControls>) => {
+    const updated = { ...get().flowControls, ...controls };
+    set({ flowControls: updated });
+    const { likedTracks, flowIntent } = get();
+    if (likedTracks.length > 0) {
+      const updatedFlow = generateCognitiveDJFlow(likedTracks, flowIntent, updated);
+      set({
+        flowTracks: updatedFlow.curated_set,
+        flowResult: updatedFlow,
+        currentPhases: updatedFlow.phases,
+        targetTrackCount: updatedFlow.computed_total_tracks,
+        activeTrack: updatedFlow.curated_set[0] || null,
+        status: {
+          step: 'ready',
+          message: `Set updated: ${updatedFlow.computed_total_tracks} tracks (${Math.round(updatedFlow.computed_total_duration_ms / 60000)}m) · ${updated.intensity} / ${updated.transitionStyle}.`,
           progress: 100
         }
       });
@@ -463,7 +493,7 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
   },
 
   generateFlow: async () => {
-    const { isMockMode, tokens, geminiApiKey, flowIntent } = get();
+    const { isMockMode, tokens, geminiApiKey, flowIntent, flowControls } = get();
 
     set({
       status: {
@@ -534,7 +564,8 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
               progress
             }
           });
-        }
+        },
+        flowControls
       );
 
       // Step 3: Set State and Celebrate

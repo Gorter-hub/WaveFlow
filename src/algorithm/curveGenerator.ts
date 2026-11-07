@@ -3,13 +3,17 @@ import {
   FlowPhaseConfig,
   CognitiveFlowIntentId,
   CognitiveIntentConfig,
-  CuratedSetResult
+  CuratedSetResult,
+  FlowGenerationControls
 } from '../types';
+import { evaluateTrackTransition, TransitionContext } from './transitionScorer';
 
 /**
- * Neuroscience-backed Cognitive Flow Intent Presets
+ * 8 Neuroscience & Musically-Calibrated Intent Presets
+ * (4 Core Primary Intents + 4 Extended Listening Presets)
  */
 export const COGNITIVE_INTENTS: Record<CognitiveFlowIntentId, CognitiveIntentConfig> = {
+  // === 4 CORE INTENTS ===
   deep_focus: {
     id: 'deep_focus',
     name: 'Deep Focus',
@@ -18,11 +22,18 @@ export const COGNITIVE_INTENTS: Record<CognitiveFlowIntentId, CognitiveIntentCon
       'Aligned with the 90-minute human ultradian cycle. Flat, stable energy (40-62%) with minimal vocal distractions and strict ±3 BPM delta transitions to avoid cognitive context switching, closing with an intentional decompression drop.',
     duration_target_mins: [75, 90],
     target_energy_range: [40, 62],
-    bpm_tolerance: 3, // strict ±3 BPM adjacent delta
-    vocal_threshold_max: 35, // strictly minimal vocals
+    bpm_tolerance: 3,
+    vocal_threshold_max: 35,
     badge: 'Ultradian (75-90m)',
     color: '#10b981',
     accentGradient: 'from-emerald-500/25 to-teal-500/5',
+    category: 'core',
+    defaultControls: {
+      targetDurationMins: 80,
+      intensity: 'balanced',
+      transitionStyle: 'seamless',
+      vocals: 'instrumental'
+    },
     phases: [
       {
         name: 'Attunement',
@@ -30,6 +41,7 @@ export const COGNITIVE_INTENTS: Record<CognitiveFlowIntentId, CognitiveIntentCon
         duration_ratio: 0.15,
         target_energy_range: [40, 52],
         target_valence_range: [40, 65],
+        phaseType: 'warmup',
         color: '#34d399',
         gradient: 'from-emerald-500/25 to-emerald-500/5'
       },
@@ -39,6 +51,7 @@ export const COGNITIVE_INTENTS: Record<CognitiveFlowIntentId, CognitiveIntentCon
         duration_ratio: 0.70,
         target_energy_range: [48, 62],
         target_valence_range: [45, 60],
+        phaseType: 'plateau',
         color: '#10b981',
         gradient: 'from-emerald-600/30 to-emerald-600/5'
       },
@@ -48,6 +61,7 @@ export const COGNITIVE_INTENTS: Record<CognitiveFlowIntentId, CognitiveIntentCon
         duration_ratio: 0.15,
         target_energy_range: [32, 44],
         target_valence_range: [35, 55],
+        phaseType: 'cooldown',
         color: '#06b6d4',
         gradient: 'from-cyan-500/25 to-cyan-500/5'
       }
@@ -59,20 +73,28 @@ export const COGNITIVE_INTENTS: Record<CognitiveFlowIntentId, CognitiveIntentCon
     name: 'Party / Festival Explosive',
     tagline: 'Single Arc Mainstage Set · 50 to 65 mins',
     neuroscience_rationale:
-      'Engineered for maximum dopamine release: fast 2-track launch, aggressive voltage climb, followed by a 35-minute sustained peak plateau (85-100% energy) with tight high-energy landing.',
+      'Engineered for maximum dopamine release: fast launch, aggressive voltage climb, followed by a sustained peak plateau (85-100% energy) with tight high-energy landing.',
     duration_target_mins: [50, 65],
     target_energy_range: [70, 100],
     bpm_tolerance: 6,
     badge: 'Single Arc (50-65m)',
     color: '#f43f5e',
     accentGradient: 'from-rose-500/25 to-amber-500/5',
+    category: 'core',
+    defaultControls: {
+      targetDurationMins: 55,
+      intensity: 'energetic',
+      transitionStyle: 'adventurous',
+      vocals: 'welcome'
+    },
     phases: [
       {
         name: 'Quick Launch',
         description: 'Fast energetic greeting to gather crowd attention',
-        duration_ratio: 0.12,
-        target_energy_range: [58, 72],
+        duration_ratio: 0.14,
+        target_energy_range: [58, 74],
         target_valence_range: [60, 85],
+        phaseType: 'warmup',
         color: '#fb923c',
         gradient: 'from-orange-500/25 to-orange-500/5'
       },
@@ -80,26 +102,29 @@ export const COGNITIVE_INTENTS: Record<CognitiveFlowIntentId, CognitiveIntentCon
         name: 'Voltage Climb',
         description: 'Steep acceleration into mainstage festival frequencies',
         duration_ratio: 0.18,
-        target_energy_range: [72, 86],
+        target_energy_range: [74, 88],
         target_valence_range: [65, 90],
+        phaseType: 'build',
         color: '#f59e0b',
         gradient: 'from-amber-500/30 to-amber-500/5'
       },
       {
         name: 'Peak Energy Plateau',
-        description: 'Sustained 35-minute maximum adrenaline and peak drops',
-        duration_ratio: 0.58,
+        description: 'Sustained adrenaline and euphoric mainstage drops',
+        duration_ratio: 0.54,
         target_energy_range: [86, 100],
         target_valence_range: [70, 98],
+        phaseType: 'climax',
         color: '#f43f5e',
         gradient: 'from-rose-500/35 to-rose-500/5'
       },
       {
         name: 'Tight Landing',
-        description: 'Crisp 2-track euphoric cooldown',
-        duration_ratio: 0.12,
-        target_energy_range: [50, 68],
+        description: 'Crisp euphoric cooldown',
+        duration_ratio: 0.14,
+        target_energy_range: [52, 68],
         target_valence_range: [55, 80],
+        phaseType: 'cooldown',
         color: '#ec4899',
         gradient: 'from-pink-500/25 to-pink-500/5'
       }
@@ -111,13 +136,20 @@ export const COGNITIVE_INTENTS: Record<CognitiveFlowIntentId, CognitiveIntentCon
     name: 'Night Drive / Roadtrip',
     tagline: 'Multi-Peak Cinematic Wave · 2 to 3 hours',
     neuroscience_rationale:
-      'Long-distance cognitive endurance architecture. Mandatory anti-fatigue "Reset Valleys" every 45 minutes prevent auditory saturation before building into successive higher peaks.',
+      'Long-distance cognitive endurance architecture. Anti-fatigue "Reset Valleys" prevent auditory saturation before building into successive higher peaks.',
     duration_target_mins: [120, 180],
     target_energy_range: [35, 95],
     bpm_tolerance: 5,
     badge: 'Multi-Act (2-3 hrs)',
     color: '#8b5cf6',
     accentGradient: 'from-purple-500/25 to-indigo-500/5',
+    category: 'core',
+    defaultControls: {
+      targetDurationMins: 135,
+      intensity: 'balanced',
+      transitionStyle: 'balanced',
+      vocals: 'balanced'
+    },
     phases: [
       {
         name: 'Horizon Departure',
@@ -125,6 +157,7 @@ export const COGNITIVE_INTENTS: Record<CognitiveFlowIntentId, CognitiveIntentCon
         duration_ratio: 0.14,
         target_energy_range: [45, 62],
         target_valence_range: [40, 65],
+        phaseType: 'warmup',
         color: '#a855f7',
         gradient: 'from-purple-500/25 to-purple-500/5'
       },
@@ -134,6 +167,7 @@ export const COGNITIVE_INTENTS: Record<CognitiveFlowIntentId, CognitiveIntentCon
         duration_ratio: 0.22,
         target_energy_range: [65, 80],
         target_valence_range: [50, 75],
+        phaseType: 'build',
         color: '#6366f1',
         gradient: 'from-indigo-500/25 to-indigo-500/5'
       },
@@ -143,6 +177,7 @@ export const COGNITIVE_INTENTS: Record<CognitiveFlowIntentId, CognitiveIntentCon
         duration_ratio: 0.10,
         target_energy_range: [35, 48],
         target_valence_range: [35, 55],
+        phaseType: 'reset',
         color: '#38bdf8',
         gradient: 'from-sky-500/20 to-sky-500/5'
       },
@@ -152,6 +187,7 @@ export const COGNITIVE_INTENTS: Record<CognitiveFlowIntentId, CognitiveIntentCon
         duration_ratio: 0.24,
         target_energy_range: [75, 88],
         target_valence_range: [55, 80],
+        phaseType: 'build',
         color: '#ec4899',
         gradient: 'from-pink-500/30 to-pink-500/5'
       },
@@ -161,6 +197,7 @@ export const COGNITIVE_INTENTS: Record<CognitiveFlowIntentId, CognitiveIntentCon
         duration_ratio: 0.08,
         target_energy_range: [38, 50],
         target_valence_range: [40, 60],
+        phaseType: 'reset',
         color: '#06b6d4',
         gradient: 'from-cyan-500/20 to-cyan-500/5'
       },
@@ -170,6 +207,7 @@ export const COGNITIVE_INTENTS: Record<CognitiveFlowIntentId, CognitiveIntentCon
         duration_ratio: 0.16,
         target_energy_range: [84, 98],
         target_valence_range: [60, 90],
+        phaseType: 'climax',
         color: '#f43f5e',
         gradient: 'from-rose-500/35 to-rose-500/5'
       },
@@ -179,6 +217,7 @@ export const COGNITIVE_INTENTS: Record<CognitiveFlowIntentId, CognitiveIntentCon
         duration_ratio: 0.06,
         target_energy_range: [35, 50],
         target_valence_range: [40, 65],
+        phaseType: 'cooldown',
         color: '#14b8a6',
         gradient: 'from-teal-500/20 to-teal-500/5'
       }
@@ -197,6 +236,13 @@ export const COGNITIVE_INTENTS: Record<CognitiveFlowIntentId, CognitiveIntentCon
     badge: 'Cadence Lock (60-75m)',
     color: '#eab308',
     accentGradient: 'from-amber-500/25 to-yellow-500/5',
+    category: 'core',
+    defaultControls: {
+      targetDurationMins: 65,
+      intensity: 'energetic',
+      transitionStyle: 'seamless',
+      vocals: 'balanced'
+    },
     phases: [
       {
         name: 'Cadence Initialization',
@@ -204,6 +250,7 @@ export const COGNITIVE_INTENTS: Record<CognitiveFlowIntentId, CognitiveIntentCon
         duration_ratio: 0.20,
         target_energy_range: [60, 75],
         target_valence_range: [65, 88],
+        phaseType: 'warmup',
         color: '#facc15',
         gradient: 'from-yellow-500/25 to-yellow-500/5'
       },
@@ -213,6 +260,7 @@ export const COGNITIVE_INTENTS: Record<CognitiveFlowIntentId, CognitiveIntentCon
         duration_ratio: 0.45,
         target_energy_range: [70, 85],
         target_valence_range: [70, 92],
+        phaseType: 'plateau',
         color: '#eab308',
         gradient: 'from-amber-500/30 to-amber-500/5'
       },
@@ -222,6 +270,7 @@ export const COGNITIVE_INTENTS: Record<CognitiveFlowIntentId, CognitiveIntentCon
         duration_ratio: 0.25,
         target_energy_range: [82, 95],
         target_valence_range: [75, 98],
+        phaseType: 'climax',
         color: '#f97316',
         gradient: 'from-orange-500/35 to-orange-500/5'
       },
@@ -231,27 +280,252 @@ export const COGNITIVE_INTENTS: Record<CognitiveFlowIntentId, CognitiveIntentCon
         duration_ratio: 0.10,
         target_energy_range: [52, 68],
         target_valence_range: [60, 80],
+        phaseType: 'cooldown',
         color: '#10b981',
         gradient: 'from-emerald-500/20 to-emerald-500/5'
+      }
+    ]
+  },
+
+  // === 4 EXTENDED PRESETS ===
+  relax_unwind: {
+    id: 'relax_unwind',
+    name: 'Relax & Unwind',
+    tagline: 'Gentle Pacing · 30 to 45 mins evening decompression',
+    neuroscience_rationale:
+      'Parasympathetic nervous system recovery. Low acoustic stimulation (30-48% energy), warm emotional valence, and smooth gentle transitions to encourage bodily rest and stress reduction.',
+    duration_target_mins: [30, 45],
+    target_energy_range: [25, 50],
+    bpm_tolerance: 5,
+    vocal_threshold_max: 50,
+    badge: 'Gentle Calm (30-45m)',
+    color: '#06b6d4',
+    accentGradient: 'from-cyan-500/25 to-sky-500/5',
+    category: 'extended',
+    defaultControls: {
+      targetDurationMins: 40,
+      intensity: 'calm',
+      transitionStyle: 'seamless',
+      vocals: 'balanced'
+    },
+    phases: [
+      {
+        name: 'Twilight Settling',
+        description: 'Slowing down from the noise of the day',
+        duration_ratio: 0.25,
+        target_energy_range: [40, 50],
+        target_valence_range: [45, 65],
+        phaseType: 'warmup',
+        color: '#38bdf8',
+        gradient: 'from-sky-500/25 to-sky-500/5'
+      },
+      {
+        name: 'Warm Resonance',
+        description: 'Velvety organic textures and acoustic peace',
+        duration_ratio: 0.50,
+        target_energy_range: [30, 44],
+        target_valence_range: [40, 60],
+        phaseType: 'plateau',
+        color: '#06b6d4',
+        gradient: 'from-cyan-500/25 to-cyan-500/5'
+      },
+      {
+        name: 'Deep Slumber Glow',
+        description: 'Quiet meditative harmonic resolution',
+        duration_ratio: 0.25,
+        target_energy_range: [25, 38],
+        target_valence_range: [35, 55],
+        phaseType: 'cooldown',
+        color: '#14b8a6',
+        gradient: 'from-teal-500/20 to-teal-500/5'
+      }
+    ]
+  },
+
+  creative_flow: {
+    id: 'creative_flow',
+    name: 'Creative Flow',
+    tagline: 'Expansive Mindset · 60 to 90 mins ideation',
+    neuroscience_rationale:
+      'Divergent thinking facilitation. Balanced mid-tempo energy with engaging textural diversity (electronic, acoustic, ambient grooves) that stimulates creative exploration without cognitive overload.',
+    duration_target_mins: [60, 90],
+    target_energy_range: [48, 72],
+    bpm_tolerance: 6,
+    badge: 'Ideation Flow (60-90m)',
+    color: '#a855f7',
+    accentGradient: 'from-purple-500/25 to-fuchsia-500/5',
+    category: 'extended',
+    defaultControls: {
+      targetDurationMins: 75,
+      intensity: 'balanced',
+      transitionStyle: 'balanced',
+      vocals: 'balanced'
+    },
+    phases: [
+      {
+        name: 'Curiosity Ignition',
+        description: 'Opening auditory horizons and lateral connections',
+        duration_ratio: 0.20,
+        target_energy_range: [48, 62],
+        target_valence_range: [50, 75],
+        phaseType: 'warmup',
+        color: '#c084fc',
+        gradient: 'from-purple-400/25 to-purple-400/5'
+      },
+      {
+        name: 'Exploratory Canvas',
+        description: 'Dynamic balance between rhythm and textural surprise',
+        duration_ratio: 0.60,
+        target_energy_range: [54, 72],
+        target_valence_range: [55, 80],
+        phaseType: 'plateau',
+        color: '#a855f7',
+        gradient: 'from-purple-600/30 to-purple-600/5'
+      },
+      {
+        name: 'Synthesis & Integration',
+        description: 'Reflective resolution connecting disparate motifs',
+        duration_ratio: 0.20,
+        target_energy_range: [44, 58],
+        target_valence_range: [45, 70],
+        phaseType: 'cooldown',
+        color: '#818cf8',
+        gradient: 'from-indigo-400/25 to-indigo-400/5'
+      }
+    ]
+  },
+
+  reading_study: {
+    id: 'reading_study',
+    name: 'Reading / Studying',
+    tagline: 'Zero Interference · 45 to 60 mins reading retention',
+    neuroscience_rationale:
+      'Phonological loop protection. Strict vocal minimization (<= 25% vocals) with consistent acoustic texture to prevent semantic linguistic collision with printed material.',
+    duration_target_mins: [45, 60],
+    target_energy_range: [32, 52],
+    bpm_tolerance: 4,
+    vocal_threshold_max: 25,
+    badge: 'Retention (45-60m)',
+    color: '#14b8a6',
+    accentGradient: 'from-teal-500/25 to-emerald-500/5',
+    category: 'extended',
+    defaultControls: {
+      targetDurationMins: 50,
+      intensity: 'calm',
+      transitionStyle: 'seamless',
+      vocals: 'instrumental'
+    },
+    phases: [
+      {
+        name: 'Quiet Focus Entry',
+        description: 'Gentle acoustic soundscape settling the visual workspace',
+        duration_ratio: 0.20,
+        target_energy_range: [34, 46],
+        target_valence_range: [38, 58],
+        phaseType: 'warmup',
+        color: '#2dd4bf',
+        gradient: 'from-teal-400/25 to-teal-400/5'
+      },
+      {
+        name: 'Linguistic Immunity',
+        description: 'Hypnotic instrumental rhythm protecting deep comprehension',
+        duration_ratio: 0.65,
+        target_energy_range: [36, 52],
+        target_valence_range: [40, 62],
+        phaseType: 'plateau',
+        color: '#14b8a6',
+        gradient: 'from-teal-600/30 to-teal-600/5'
+      },
+      {
+        name: 'Gentle Bookmark',
+        description: 'Light contemplative outro signaling reading pause',
+        duration_ratio: 0.15,
+        target_energy_range: [30, 42],
+        target_valence_range: [35, 55],
+        phaseType: 'cooldown',
+        color: '#0d9488',
+        gradient: 'from-teal-700/25 to-teal-700/5'
+      }
+    ]
+  },
+
+  morning_motivation: {
+    id: 'morning_motivation',
+    name: 'Morning Motivation',
+    tagline: 'Solar Wakeup Crescendo · 35 to 50 mins progressive drive',
+    neuroscience_rationale:
+      'Cortisol awakening response synchronizer. Begins with warm melodic grounding before progressively elevating tempo and energy toward an invigorated, productive morning peak.',
+    duration_target_mins: [35, 50],
+    target_energy_range: [42, 86],
+    bpm_tolerance: 5,
+    badge: 'Solar Surge (35-50m)',
+    color: '#f97316',
+    accentGradient: 'from-orange-500/25 to-amber-500/5',
+    category: 'extended',
+    defaultControls: {
+      targetDurationMins: 45,
+      intensity: 'energetic',
+      transitionStyle: 'balanced',
+      vocals: 'welcome'
+    },
+    phases: [
+      {
+        name: 'Morning Awakening',
+        description: 'Warm acoustic sunlight and melodic clarity',
+        duration_ratio: 0.22,
+        target_energy_range: [42, 56],
+        target_valence_range: [50, 75],
+        phaseType: 'warmup',
+        color: '#fbbf24',
+        gradient: 'from-amber-400/25 to-amber-400/5'
+      },
+      {
+        name: 'Momentum Builder',
+        description: 'Crisp percussive lift igniting daily focus and drive',
+        duration_ratio: 0.45,
+        target_energy_range: [58, 74],
+        target_valence_range: [60, 85],
+        phaseType: 'build',
+        color: '#f97316',
+        gradient: 'from-orange-500/30 to-orange-500/5'
+      },
+      {
+        name: 'Daybreak Momentum',
+        description: 'Full dopamine release ready to tackle ambitious goals',
+        duration_ratio: 0.33,
+        target_energy_range: [74, 88],
+        target_valence_range: [65, 95],
+        phaseType: 'climax',
+        color: '#ef4444',
+        gradient: 'from-red-500/35 to-red-500/5'
       }
     ]
   }
 };
 
 /**
- * Normalizes track vectors to guaranteed bounds
+ * Normalizes track vectors to guaranteed numerical bounds
  */
-function normalizeTrack(t: Track): Track {
-  const energy = typeof t.energy_score === 'number' && !isNaN(t.energy_score)
-    ? t.energy_score
-    : (typeof t.energy === 'number' && !isNaN(t.energy) ? t.energy : 50);
+export function normalizeTrack(t: Track): Track {
+  const energy =
+    typeof t.energy_score === 'number' && !isNaN(t.energy_score)
+      ? t.energy_score
+      : typeof t.energy === 'number' && !isNaN(t.energy)
+      ? t.energy
+      : 50;
 
-  const valence = typeof t.valence_score === 'number' && !isNaN(t.valence_score)
-    ? t.valence_score
-    : (typeof t.valence === 'number' && !isNaN(t.valence) ? t.valence : 50);
+  const valence =
+    typeof t.valence_score === 'number' && !isNaN(t.valence_score)
+      ? t.valence_score
+      : typeof t.valence === 'number' && !isNaN(t.valence)
+      ? t.valence
+      : 50;
 
-  const bpm = typeof t.bpm === 'number' && t.bpm > 40 && t.bpm < 220 ? t.bpm : 124;
-  const vocal_presence = typeof t.vocal_presence === 'number' ? t.vocal_presence : 50;
+  const bpm = typeof t.bpm === 'number' && t.bpm >= 45 && t.bpm <= 220 ? t.bpm : 124;
+  const vocal_presence =
+    typeof t.vocal_presence === 'number' && !isNaN(t.vocal_presence)
+      ? t.vocal_presence
+      : 50;
 
   return {
     ...t,
@@ -259,18 +533,64 @@ function normalizeTrack(t: Track): Track {
     valence_score: Math.min(100, Math.max(0, Math.round(valence))),
     bpm: Math.round(bpm),
     vocal_presence: Math.min(100, Math.max(0, Math.round(vocal_presence))),
-    mood_vibe: t.mood_vibe || 'driving',
+    mood_vibe: t.mood_vibe || 'Balanced Groove',
     energy: Math.min(100, Math.max(0, Math.round(energy))),
     valence: Math.min(100, Math.max(0, Math.round(valence)))
   };
 }
 
 /**
- * Intelligent DJ Set Synthesizer that satisfies all neuroscience intent rules
+ * Computes a soft target trajectory curve at progress t (0.0 to 1.0)
+ */
+function getTargetTrajectoryPoint(
+  intent: CognitiveIntentConfig,
+  progress: number,
+  intensityAdjustment: number = 0
+): { targetEnergy: number; targetValence: number; currentPhaseIdx: number } {
+  let accumulatedRatio = 0;
+  let phaseIdx = 0;
+
+  for (let i = 0; i < intent.phases.length; i++) {
+    const phase = intent.phases[i];
+    const nextRatio = accumulatedRatio + phase.duration_ratio;
+    if (progress <= nextRatio || i === intent.phases.length - 1) {
+      phaseIdx = i;
+      // Progress within this phase (0 to 1)
+      const phaseT = Math.min(
+        1,
+        Math.max(0, (progress - accumulatedRatio) / Math.max(0.01, phase.duration_ratio))
+      );
+      const [minE, maxE] = phase.target_energy_range;
+      const [minV, maxV] = phase.target_valence_range;
+
+      const targetEnergy = Math.min(
+        100,
+        Math.max(10, minE + (maxE - minE) * phaseT + intensityAdjustment)
+      );
+      const targetValence = minV + (maxV - minV) * phaseT;
+
+      return { targetEnergy, targetValence, currentPhaseIdx: phaseIdx };
+    }
+    accumulatedRatio = nextRatio;
+  }
+
+  const lastPhase = intent.phases[intent.phases.length - 1];
+  return {
+    targetEnergy: lastPhase.target_energy_range[1] + intensityAdjustment,
+    targetValence: lastPhase.target_valence_range[1],
+    currentPhaseIdx: intent.phases.length - 1
+  };
+}
+
+/**
+ * Adaptive Multi-Criteria Cognitive DJ Set Synthesizer
+ * Implements Section 2, 4, 5, 7, 9:
+ * Playlist Quality = Intent Fit + Transition Coherence + Global Trajectory + Variety - Penalties
  */
 export function generateCognitiveDJFlow(
   availableTracks: Track[],
-  intentId: CognitiveFlowIntentId = 'deep_focus'
+  intentId: CognitiveFlowIntentId = 'deep_focus',
+  controls?: FlowGenerationControls
 ): CuratedSetResult {
   if (!availableTracks || availableTracks.length === 0) {
     return {
@@ -278,258 +598,238 @@ export function generateCognitiveDJFlow(
       computed_total_duration_ms: 0,
       computed_total_tracks: 0,
       phases: [],
-      curated_set: []
+      curated_set: [],
+      applied_controls: controls
     };
   }
 
   const intent = COGNITIVE_INTENTS[intentId] || COGNITIVE_INTENTS.deep_focus;
+  const mergedControls: Required<FlowGenerationControls> = {
+    ...intent.defaultControls,
+    ...controls
+  };
+
+  // Determine intensity energy offset
+  let intensityOffset = 0;
+  if (mergedControls.intensity === 'calm') intensityOffset = -8;
+  if (mergedControls.intensity === 'energetic') intensityOffset = 8;
+
+  // Compute target total duration
+  const targetDurationMins =
+    mergedControls.targetDurationMins ||
+    (intent.duration_target_mins[0] + intent.duration_target_mins[1]) / 2;
+  const targetDurationMs = targetDurationMins * 60 * 1000;
+
   const normalizedPool = availableTracks.map(normalizeTrack);
 
-  // Target duration in ms: use midpoint of duration target range
-  const targetDurationMinutes = (intent.duration_target_mins[0] + intent.duration_target_mins[1]) / 2;
-  const targetDurationMs = targetDurationMinutes * 60 * 1000;
+  // Apply vocal filter if specified
+  let candidatePool = normalizedPool;
+  const isInstrumentalPriority =
+    mergedControls.vocals === 'instrumental' ||
+    (Boolean(intent.vocal_threshold_max) && mergedControls.vocals !== 'welcome');
 
-  // Compute duration per phase based on phase ratio
-  const phaseTargetsMs = intent.phases.map((p) => p.duration_ratio * targetDurationMs);
-
-  const usedTrackIds = new Set<string>();
-  const curatedSet: Track[] = [];
-  const phaseConfigs: FlowPhaseConfig[] = [];
-
-  let overallTrackIndex = 1;
-
-  for (let pIdx = 0; pIdx < intent.phases.length; pIdx++) {
-    const phaseTemplate = intent.phases[pIdx];
-    const targetPhaseMs = phaseTargetsMs[pIdx];
-    let accumulatedPhaseMs = 0;
-    const phasePickedTracks: Track[] = [];
-
-    // Filter available candidates
-    const unusedPool = normalizedPool.filter((t) => !usedTrackIds.has(t.id));
-
-    // Intent specific filtering:
-    // If Deep Focus: penalize or exclude heavy vocals
-    let candidates = unusedPool;
-    if (intentId === 'deep_focus' && intent.vocal_threshold_max) {
-      const instrumentalPool = unusedPool.filter(
-        (t) => t.vocal_presence <= (intent.vocal_threshold_max ?? 35)
-      );
-      if (instrumentalPool.length >= 6) {
-        candidates = instrumentalPool;
+  if (isInstrumentalPriority) {
+    const threshold = intent.vocal_threshold_max || 35;
+    const instrumentalCandidates = normalizedPool.filter((t) => t.vocal_presence <= threshold);
+    if (instrumentalCandidates.length >= 10) {
+      candidatePool = instrumentalCandidates;
+    } else {
+      // Relax threshold gradually to get lowest available vocal tracks in user's library
+      const relaxed = normalizedPool.filter((t) => t.vocal_presence <= threshold + 20);
+      if (relaxed.length >= 10) {
+        candidatePool = relaxed;
       }
     }
-
-    // Filter by target energy range for this phase
-    const [minE, maxE] = phaseTemplate.target_energy_range;
-    let matchingCandidates = candidates.filter(
-      (t) => t.energy_score >= minE && t.energy_score <= maxE
-    );
-
-    // If candidate pool is tight, relax energy bounds gradually
-    let tolerance = 5;
-    while (matchingCandidates.length < 3 && tolerance <= 40) {
-      matchingCandidates = candidates.filter(
-        (t) => t.energy_score >= Math.max(0, minE - tolerance) && t.energy_score <= Math.min(100, maxE + tolerance)
-      );
-      tolerance += 5;
-    }
-
-    if (matchingCandidates.length === 0) {
-      matchingCandidates = [...candidates];
-    }
-
-    // Pick tracks to fulfill duration target for this phase
-    // Pack tracks until targetPhaseMs is reached (or minimum 2 tracks per phase)
-    let candidateIndex = 0;
-    // Shuffle slightly for fresh variety while respecting artist spread
-    const diversified = pickDiversifiedTracks(matchingCandidates, Math.max(2, matchingCandidates.length));
-
-    while (
-      (accumulatedPhaseMs < targetPhaseMs || phasePickedTracks.length < 2) &&
-      candidateIndex < diversified.length
-    ) {
-      const candidate = diversified[candidateIndex++];
-      if (!usedTrackIds.has(candidate.id)) {
-        phasePickedTracks.push(candidate);
-        usedTrackIds.add(candidate.id);
-        accumulatedPhaseMs += candidate.duration_ms || (210 * 1000);
-      }
-    }
-
-    // If matching candidates were not enough to reach target duration, draw from remaining unused pool
-    if (accumulatedPhaseMs < targetPhaseMs && unusedPool.length > phasePickedTracks.length) {
-      const remainingUnused = unusedPool
-        .filter((t) => !usedTrackIds.has(t.id))
-        .sort(
-          (a, b) =>
-            Math.abs(a.energy_score - (minE + maxE) / 2) -
-            Math.abs(b.energy_score - (minE + maxE) / 2)
-        );
-
-      for (const fallbackCandidate of remainingUnused) {
-        if (accumulatedPhaseMs >= targetPhaseMs) break;
-        phasePickedTracks.push(fallbackCandidate);
-        usedTrackIds.add(fallbackCandidate.id);
-        accumulatedPhaseMs += fallbackCandidate.duration_ms || (210 * 1000);
-      }
-    }
-
-
-    // Now order phasePickedTracks applying strict DJ transition constraints:
-    // Adjacent BPM delta control and valence continuity
-    const sequencedPhaseTracks = sequencePhaseTracks(
-      phasePickedTracks,
-      phaseTemplate,
-      intent.bpm_tolerance,
-      curatedSet.length > 0 ? curatedSet[curatedSet.length - 1] : null
-    );
-
-    const phaseStartIndex = overallTrackIndex;
-
-    for (let i = 0; i < sequencedPhaseTracks.length; i++) {
-      const track = sequencedPhaseTracks[i];
-      const prevTrack = i > 0 ? sequencedPhaseTracks[i - 1] : (curatedSet[curatedSet.length - 1] || null);
-
-      let transitionNote = '';
-      if (prevTrack) {
-        const bpmDelta = Math.abs(track.bpm - prevTrack.bpm);
-        const valenceDelta = Math.abs(track.valence_score - prevTrack.valence_score);
-        transitionNote = `Δ ${bpmDelta} BPM · Harmonic ${valenceDelta < 15 ? 'Locked' : 'Smooth'}`;
-      } else {
-        transitionNote = 'Set Opener · Key Anchor';
-      }
-
-      curatedSet.push({
-        ...track,
-        phase: phaseTemplate.name,
-        phaseIndex: i + 1,
-        overallIndex: overallTrackIndex++,
-        transition_note: transitionNote
-      });
-    }
-
-    const phaseEndIndex = overallTrackIndex - 1;
-
-    phaseConfigs.push({
-      name: phaseTemplate.name,
-      description: phaseTemplate.description,
-      trackCount: sequencedPhaseTracks.length,
-      duration_ms: accumulatedPhaseMs,
-      minEnergy: minE,
-      maxEnergy: maxE,
-      color: phaseTemplate.color,
-      gradient: phaseTemplate.gradient,
-      rangeIndex: [phaseStartIndex, phaseEndIndex]
-    });
   }
 
-  const computed_total_duration_ms = curatedSet.reduce(
-    (sum, t) => sum + (t.duration_ms || 210000),
-    0
+  const curatedSet: Track[] = [];
+  const usedTrackIds = new Set<string>();
+  const recentArtists: string[] = [];
+  let accumulatedMs = 0;
+
+  // Transition scoring context template
+  const transitionContext: TransitionContext = {
+    intentId,
+    transitionStyle: mergedControls.transitionStyle,
+    allowHalfDoubleTime: true
+  };
+
+  // 1. Pick Opener Track
+  // Opener should match the starting phase energy target closely with high acoustic clarity
+  const openerTrajectory = getTargetTrajectoryPoint(intent, 0.0, intensityOffset);
+  const openerCandidates = candidatePool.filter(
+    (t) =>
+      Math.abs(t.energy_score - openerTrajectory.targetEnergy) <= 15 &&
+      Math.abs(t.valence_score - openerTrajectory.targetValence) <= 25
   );
+
+  const initialPickList = openerCandidates.length > 0 ? openerCandidates : candidatePool;
+  // Sort by closest to opener target
+  const sortedOpeners = [...initialPickList].sort(
+    (a, b) =>
+      Math.abs(a.energy_score - openerTrajectory.targetEnergy) -
+      Math.abs(b.energy_score - openerTrajectory.targetEnergy)
+  );
+
+  const opener = sortedOpeners[0];
+  usedTrackIds.add(opener.id);
+  recentArtists.push(opener.artist.toLowerCase());
+  accumulatedMs += opener.duration_ms || 210000;
+
+  const openerEval = evaluateTrackTransition(null, opener, transitionContext);
+
+  curatedSet.push({
+    ...opener,
+    overallIndex: 1,
+    transition_note: openerEval.note
+  });
+
+  // 2. Adaptive Sequencing Loop (Step-by-step Multi-Factor Beam Selection)
+  let currentAnchor = opener;
+  let trackIndex = 2;
+
+  // We loop until we reach target duration (with sensible bounds: at least 6 tracks, up to 100 tracks max)
+  while (accumulatedMs < targetDurationMs && usedTrackIds.size < candidatePool.length && trackIndex <= 100) {
+    const progress = Math.min(0.98, accumulatedMs / targetDurationMs);
+    const trajectory = getTargetTrajectoryPoint(intent, progress, intensityOffset);
+    const currentPhaseTemplate = intent.phases[trajectory.currentPhaseIdx];
+
+    const currentContext: TransitionContext = {
+      ...transitionContext,
+      phaseType: currentPhaseTemplate.phaseType,
+      recentArtists: recentArtists.slice(-4)
+    };
+
+    // Filter available candidates
+    const available = candidatePool.filter((t) => !usedTrackIds.has(t.id));
+    if (available.length === 0) break;
+
+    let bestCandidate: Track | null = null;
+    let highestScore = -Infinity;
+    let bestEval = openerEval;
+
+    // Evaluate candidate suitability & transition coherence
+    for (let i = 0; i < available.length; i++) {
+      const candidate = available[i];
+
+      // 1. Transition Coherence Score (0 to 100)
+      const transEval = evaluateTrackTransition(currentAnchor, candidate, currentContext);
+
+      // 2. Global Trajectory Alignment (0 to 100)
+      const energyDelta = Math.abs(candidate.energy_score - trajectory.targetEnergy);
+      let trajectoryScore = Math.max(0, 100 - energyDelta * 2.2);
+
+      // 3. Intent Fit Score (0 to 100)
+      let intentFitScore = 100;
+      if (candidate.energy_score < intent.target_energy_range[0] - 10) {
+        intentFitScore -= 30;
+      } else if (candidate.energy_score > intent.target_energy_range[1] + 10) {
+        intentFitScore -= 30;
+      }
+      if (isInstrumentalPriority && candidate.vocal_presence > (intent.vocal_threshold_max || 35)) {
+        intentFitScore -= (candidate.vocal_presence - (intent.vocal_threshold_max || 35)) * 1.2;
+      }
+
+      // Combine into composite Quality score
+      const qualityScore =
+        transEval.score * 0.50 +
+        trajectoryScore * 0.35 +
+        intentFitScore * 0.15;
+
+      if (qualityScore > highestScore) {
+        highestScore = qualityScore;
+        bestCandidate = candidate;
+        bestEval = transEval;
+      }
+    }
+
+    if (!bestCandidate) {
+      // Fallback: pick any unused track closest to target energy
+      bestCandidate = available[0];
+      bestEval = evaluateTrackTransition(currentAnchor, bestCandidate, currentContext);
+    }
+
+    usedTrackIds.add(bestCandidate.id);
+    recentArtists.push(bestCandidate.artist.toLowerCase());
+    accumulatedMs += bestCandidate.duration_ms || 210000;
+
+    curatedSet.push({
+      ...bestCandidate,
+      overallIndex: trackIndex++,
+      transition_note: bestEval.note
+    });
+
+    currentAnchor = bestCandidate;
+  }
+
+  // 3. Dynamic Phase Segmentation
+  // Assign tracks to the intent phases based on actual cumulative duration
+  const totalSetDurationMs = curatedSet.reduce((sum, t) => sum + (t.duration_ms || 210000), 0);
+  const phaseConfigs: FlowPhaseConfig[] = [];
+  let currentDurationTracker = 0;
+  let phaseTrackAccumulator: Track[] = [];
+  let currentPhaseIdx = 0;
+
+  for (let i = 0; i < curatedSet.length; i++) {
+    const track = curatedSet[i];
+    phaseTrackAccumulator.push(track);
+    currentDurationTracker += track.duration_ms || 210000;
+
+    const progressRatio = currentDurationTracker / Math.max(1, totalSetDurationMs);
+    let targetRatioSum = 0;
+    for (let p = 0; p <= currentPhaseIdx; p++) {
+      targetRatioSum += intent.phases[p].duration_ratio;
+    }
+
+    const isLastTrack = i === curatedSet.length - 1;
+    const isPhaseComplete = progressRatio >= targetRatioSum && currentPhaseIdx < intent.phases.length - 1;
+
+    if (isPhaseComplete || isLastTrack) {
+      const template = intent.phases[currentPhaseIdx];
+      const phaseStartIdx = curatedSet.indexOf(phaseTrackAccumulator[0]) + 1;
+      const phaseEndIdx = curatedSet.indexOf(phaseTrackAccumulator[phaseTrackAccumulator.length - 1]) + 1;
+
+      const phaseDuration = phaseTrackAccumulator.reduce(
+        (sum, t) => sum + (t.duration_ms || 210000),
+        0
+      );
+
+      const energies = phaseTrackAccumulator.map((t) => t.energy_score);
+      const minE = energies.length ? Math.min(...energies) : template.target_energy_range[0];
+      const maxE = energies.length ? Math.max(...energies) : template.target_energy_range[1];
+
+      // Assign phase label to tracks
+      for (const t of phaseTrackAccumulator) {
+        t.phase = template.name;
+      }
+
+      phaseConfigs.push({
+        name: template.name,
+        description: template.description,
+        trackCount: phaseTrackAccumulator.length,
+        duration_ms: phaseDuration,
+        minEnergy: minE,
+        maxEnergy: maxE,
+        color: template.color,
+        gradient: template.gradient,
+        rangeIndex: [phaseStartIdx, phaseEndIdx]
+      });
+
+      phaseTrackAccumulator = [];
+      if (currentPhaseIdx < intent.phases.length - 1) {
+        currentPhaseIdx++;
+      }
+    }
+  }
 
   return {
     flow_intent: intentId,
-    computed_total_duration_ms,
+    computed_total_duration_ms: totalSetDurationMs,
     computed_total_tracks: curatedSet.length,
     phases: phaseConfigs,
-    curated_set: curatedSet
+    curated_set: curatedSet,
+    applied_controls: mergedControls
   };
-}
-
-/**
- * Sequences tracks inside a phase ensuring BPM delta tolerance and valence continuity
- */
-function sequencePhaseTracks(
-  tracks: Track[],
-  phaseTemplate: { target_energy_range: [number, number]; target_valence_range: [number, number] },
-  bpmTolerance: number,
-  previousTrack: Track | null
-): Track[] {
-  if (tracks.length <= 1) return tracks;
-
-  const remaining = [...tracks];
-  const ordered: Track[] = [];
-
-  let currentAnchor = previousTrack;
-
-  while (remaining.length > 0) {
-    let bestIndex = 0;
-    let lowestPenalty = Infinity;
-
-    for (let i = 0; i < remaining.length; i++) {
-      const candidate = remaining[i];
-      let penalty = 0;
-
-      if (currentAnchor) {
-        // BPM Delta Penalty
-        const bpmDelta = Math.abs(candidate.bpm - currentAnchor.bpm);
-        penalty += bpmDelta > bpmTolerance ? (bpmDelta - bpmTolerance) * 12 : bpmDelta * 2;
-
-        // Valence Smoothness Penalty (prevent mood whiplash)
-        const valenceDelta = Math.abs(candidate.valence_score - currentAnchor.valence_score);
-        penalty += valenceDelta * 0.8;
-
-        // Energy trajectory (favor progression toward phase goal)
-        const energyDelta = Math.abs(candidate.energy_score - currentAnchor.energy_score);
-        penalty += energyDelta * 0.5;
-      } else {
-        // First track: favor lowest energy in phase range to ease in
-        penalty = Math.abs(candidate.energy_score - phaseTemplate.target_energy_range[0]);
-      }
-
-      if (penalty < lowestPenalty) {
-        lowestPenalty = penalty;
-        bestIndex = i;
-      }
-    }
-
-    const chosen = remaining.splice(bestIndex, 1)[0];
-    ordered.push(chosen);
-    currentAnchor = chosen;
-  }
-
-  return ordered;
-}
-
-/**
- * Diversifies artist representation across selection
- */
-function pickDiversifiedTracks(candidates: Track[], count: number): Track[] {
-  const artistMap = new Map<string, Track[]>();
-  for (const t of candidates) {
-    const list = artistMap.get(t.artist) || [];
-    list.push(t);
-    artistMap.set(t.artist, list);
-  }
-
-  const selected: Track[] = [];
-  const artists = Array.from(artistMap.keys());
-  let round = 0;
-
-  while (selected.length < count && artists.length > 0) {
-    for (let i = 0; i < artists.length && selected.length < count; i++) {
-      const artist = artists[i];
-      const tracks = artistMap.get(artist) || [];
-      if (tracks.length > round) {
-        selected.push(tracks[round]);
-      }
-    }
-    round++;
-    if (round > 10) break;
-  }
-
-  if (selected.length < count) {
-    const selectedIds = new Set(selected.map((s) => s.id));
-    for (const t of candidates) {
-      if (!selectedIds.has(t.id)) {
-        selected.push(t);
-        if (selected.length === count) break;
-      }
-    }
-  }
-
-  return selected;
 }
 
 /**
@@ -537,10 +837,11 @@ function pickDiversifiedTracks(candidates: Track[], count: number): Track[] {
  */
 export function generateDJCurve(
   availableTracks: Track[],
-  targetCount: number = 50,
-  intentId: CognitiveFlowIntentId = 'deep_focus'
+  _targetCount: number = 50,
+  intentId: CognitiveFlowIntentId = 'deep_focus',
+  controls?: FlowGenerationControls
 ): Track[] {
-  const result = generateCognitiveDJFlow(availableTracks, intentId);
+  const result = generateCognitiveDJFlow(availableTracks, intentId, controls);
   return result.curated_set;
 }
 

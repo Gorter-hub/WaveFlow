@@ -87,21 +87,41 @@ export const EnergyCurveChart: React.FC<EnergyCurveChartProps> = ({
   // Phase region bands for background & phase headers
   const phaseRegions = useMemo(() => {
     if (tracks.length === 0 || phaseConfigs.length === 0) return [];
-    let currentX = padding.left;
-    const totalSetTracks = phaseConfigs.reduce((acc, p) => acc + p.trackCount, 0) || tracks.length;
 
     return phaseConfigs.map((phase) => {
-      const phaseWidth = (phase.trackCount / Math.max(1, totalSetTracks)) * chartWidth;
-      const region = {
+      let startTrackIdx = 0;
+      let endTrackIdx = tracks.length - 1;
+
+      if (phase.rangeIndex && phase.rangeIndex.length === 2) {
+        startTrackIdx = Math.max(0, phase.rangeIndex[0] - 1);
+        endTrackIdx = Math.min(tracks.length - 1, phase.rangeIndex[1] - 1);
+      } else {
+        const indices = tracks
+          .map((t, idx) => (t.phase === phase.name ? idx : -1))
+          .filter((idx) => idx !== -1);
+        if (indices.length > 0) {
+          startTrackIdx = indices[0];
+          endTrackIdx = indices[indices.length - 1];
+        }
+      }
+
+      const totalTracks = Math.max(1, tracks.length - 1);
+      const slotWidth = chartWidth / totalTracks;
+      const startX = Math.max(padding.left, padding.left + (startTrackIdx / totalTracks) * chartWidth - slotWidth / 2);
+      const endX = Math.min(
+        padding.left + chartWidth,
+        padding.left + (endTrackIdx / totalTracks) * chartWidth + slotWidth / 2
+      );
+      const width = Math.max(20, endX - startX);
+
+      return {
         phase,
-        x: currentX,
-        width: phaseWidth,
-        centerX: currentX + phaseWidth / 2
+        x: startX,
+        width,
+        centerX: startX + width / 2
       };
-      currentX += phaseWidth;
-      return region;
     });
-  }, [tracks.length, chartWidth, padding.left, phaseConfigs]);
+  }, [tracks, chartWidth, padding.left, phaseConfigs]);
 
   if (tracks.length === 0) {
     return (
