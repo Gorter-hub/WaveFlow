@@ -241,7 +241,7 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
     set({
       status: {
         step: 'fetching',
-        message: 'Fetching your recent 200 Liked Songs from Spotify...',
+        message: 'Fetching all Liked Songs from your Spotify library...',
         progress: 10
       },
       errorMessage: null,
@@ -268,13 +268,13 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
         // Spotify API fetch (200 tracks)
         rawTracks = await fetchUserLikedSongs(
           tokens.accessToken,
-          200,
+          undefined,
           (fetched, total) => {
             set((state) => ({
               status: {
                 step: 'fetching',
                 message: `Retrieving liked songs (${fetched}/${total})...`,
-                progress: 10 + Math.round((fetched / total) * 25)
+                progress: 10 + Math.round((fetched / Math.max(1, total)) * 25)
               }
             }));
           }

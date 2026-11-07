@@ -103,7 +103,7 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings }) => {
                   WaveFlow DJ Studio
                 </h1>
                 <p className="text-sm md:text-base text-zinc-400 mt-2 max-w-2xl leading-relaxed">
-                  Synthesizes your recent 200 Liked Songs into an emotional 50-track DJ set
+                  Synthesizes your entire Liked Songs library into an emotional 50-track DJ set
                   calibrated across 6 acoustic energy phases using Gemini AI.
                 </p>
               </div>
@@ -261,7 +261,7 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings }) => {
                 <p className="text-sm text-zinc-400 mt-1">
                   {likedTracks.length > 0
                     ? `${likedTracks.length} liked tracks loaded from your account pool`
-                    : 'Click "Fetch Library" or "Generate Flow" to load your recent 200 songs.'}
+                    : 'Click "Fetch Library" or "Generate Flow" to load your liked songs.'}
                 </p>
               </div>
 

@@ -160,19 +160,19 @@ export async function getUserProfile(accessToken: string): Promise<UserProfile> 
 }
 
 /**
- * Fetches recent 200 "Liked Songs" from Spotify (4 pages of 50)
+ * Fetches all "Liked Songs" from Spotify (paginates through all pages)
  */
 export async function fetchUserLikedSongs(
   accessToken: string,
-  targetCount: number = 200,
+  targetCount?: number,
   onProgress?: (fetched: number, total: number) => void
 ): Promise<Track[]> {
   const allTracks: Track[] = [];
   const limit = 50;
-  const maxPages = Math.ceil(targetCount / limit);
+  let offset = 0;
+  let totalReported = Infinity;
 
-  for (let page = 0; page < maxPages; page++) {
-    const offset = page * limit;
+  while (offset < totalReported) {
     const url = `${SPOTIFY_API_BASE}/me/tracks?limit=${limit}&offset=${offset}`;
 
     const res = await fetch(url, {
@@ -187,6 +187,7 @@ export async function fetchUserLikedSongs(
     }
 
     const data = await res.json();
+    totalReported = targetCount ? Math.min(targetCount, data.total || 0) : (data.total || 0);
     const items = data.items || [];
 
     for (const item of items) {
@@ -207,16 +208,18 @@ export async function fetchUserLikedSongs(
     }
 
     if (onProgress) {
-      onProgress(allTracks.length, Math.min(targetCount, data.total || targetCount));
+      onProgress(allTracks.length, totalReported);
     }
 
-    // If no more items available on user account
-    if (items.length < limit || allTracks.length >= (data.total || 0)) {
+    // Stop if reached target, no more items, or end of user's library
+    if (items.length < limit || allTracks.length >= totalReported) {
       break;
     }
+
+    offset += limit;
   }
 
-  return allTracks.slice(0, targetCount);
+  return allTracks;
 }
 
 /**

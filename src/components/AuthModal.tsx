@@ -32,7 +32,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onOpenSettings }) => {
             WaveFlow
           </h2>
           <p className="text-xs md:text-sm text-zinc-400 leading-relaxed px-2">
-            Curate your 200 Liked Songs into a continuous 50-track emotional set curve
+            Curate your complete Liked Songs library into a continuous 50-track emotional set curve
             (Warm-up → Build → Peak → Valley → Climax → Outro).
           </p>
         </div>
