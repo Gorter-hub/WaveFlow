@@ -56,6 +56,8 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
     generateFlow,
     exportToSpotify,
     exportedPlaylist,
+    pendingPlaylist,
+    login,
     selectedPhaseFilter,
     setSelectedPhaseFilter,
     isMockMode,
@@ -135,17 +137,30 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
 
       {/* Error Banner */}
       {errorMessage && (
-        <div className="relative z-20 m-4 mb-0 p-3.5 bg-rose-500/15 border border-rose-500/30 rounded-xl flex items-center justify-between text-rose-300 text-xs backdrop-blur-md">
+        <div className="relative z-20 m-4 mb-0 p-3.5 bg-rose-500/15 border border-rose-500/30 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-rose-300 text-xs backdrop-blur-md">
           <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-rose-500" />
-            <span>{errorMessage}</span>
+            <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
+            <span className="leading-relaxed">{errorMessage}</span>
           </div>
-          <button
-            onClick={clearError}
-            className="text-rose-400 hover:text-white font-bold ml-4"
-          >
-            Dismiss
-          </button>
+          <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+            {(errorMessage.includes('403') ||
+              errorMessage.toLowerCase().includes('permis') ||
+              errorMessage.toLowerCase().includes('token')) && (
+              <button
+                onClick={() => login()}
+                className="px-3 py-1.5 rounded-lg bg-spotify text-zinc-950 font-bold hover:bg-emerald-400 transition-colors text-xs flex items-center gap-1.5"
+                title="Volver a autenticar en Spotify con todos los permisos requeridos"
+              >
+                <span>Reconectar Spotify</span>
+              </button>
+            )}
+            <button
+              onClick={clearError}
+              className="text-rose-400 hover:text-white font-bold px-2 py-1 transition-colors"
+            >
+              Dismiss
+            </button>
+          </div>
         </div>
       )}
 
@@ -211,21 +226,33 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
                   className={`flex items-center justify-center gap-2 px-6 py-3.5 rounded-full font-bold text-xs uppercase tracking-wider transition-all duration-200 shadow-xl border ${
                     !hasGeneratedTracks || isExporting
                       ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border-zinc-700/50'
+                      : pendingPlaylist
+                      ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-500/50 hover:border-amber-400 hover:scale-105 shadow-amber-500/20'
                       : 'bg-zinc-950 hover:bg-zinc-900 text-spotify border-spotify/50 hover:border-spotify hover:scale-105 shadow-spotify/20'
                   }`}
-                  title="Export this curated cognitive set to Spotify"
+                  title={
+                    pendingPlaylist
+                      ? `Reintentar agregar canciones a la playlist creada "${pendingPlaylist.name}"`
+                      : 'Export this curated cognitive set to Spotify'
+                  }
                 >
                   {isExporting ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin text-spotify" />
-                      <span>Exporting...</span>
+                      <span>{pendingPlaylist ? 'Reintentando...' : 'Exporting...'}</span>
                     </>
                   ) : (
                     <>
                       <svg className="w-4 h-4 fill-current text-spotify" viewBox="0 0 24 24">
                         <path d="M12 2C6.477 2 2 6.477 2 12c0 5.524 4.477 10 10 10s10-4.476 10-10c0-5.523-4.477-10-10-10zm4.587 14.428a.627.627 0 0 1-.861.208c-2.358-1.441-5.327-1.767-8.825-.968a.627.627 0 1 1-.28-1.223c3.829-.875 7.119-.508 9.758 1.121.298.183.391.573.208.862zm1.226-2.724a.784.784 0 0 1-1.079.258c-2.7-1.66-6.816-2.14-10.01-1.171a.785.785 0 0 1-.466-1.5c3.649-1.107 8.2-.577 11.297 1.334.356.219.472.684.258 1.079zm.106-2.836C14.685 9.07 9.35 8.89 6.262 9.827a.942.942 0 1 1-.55-1.802c3.541-1.075 9.444-.863 13.208 1.37a.942.942 0 1 1-.999 1.603z" />
                       </svg>
-                      <span>{exportedPlaylist ? 'Re-Export to Spotify' : 'Export to Spotify'}</span>
+                      <span>
+                        {pendingPlaylist
+                          ? 'Retry Export to Spotify'
+                          : exportedPlaylist
+                          ? 'Re-Export to Spotify'
+                          : 'Export to Spotify'}
+                      </span>
                     </>
                   )}
                 </button>

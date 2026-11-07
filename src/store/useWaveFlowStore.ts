@@ -111,6 +111,7 @@ interface WaveFlowStore {
   status: GenerationStatus;
   errorMessage: string | null;
   exportedPlaylist: { id: string; url: string; name: string } | null;
+  pendingPlaylist: { id: string; url: string; name: string } | null;
 
   // Actions
   init: () => Promise<void>;
@@ -175,6 +176,7 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
   },
   errorMessage: null,
   exportedPlaylist: null,
+  pendingPlaylist: null,
 
   init: async () => {
     set({ isAuthLoading: true });
@@ -468,7 +470,8 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
         message: 'Logged out from Spotify',
         progress: 0
       },
-      exportedPlaylist: null
+      exportedPlaylist: null,
+      pendingPlaylist: null
     });
   },
 
@@ -482,7 +485,8 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
         progress: 10
       },
       errorMessage: null,
-      exportedPlaylist: null
+      exportedPlaylist: null,
+      pendingPlaylist: null
     });
 
     let rawTracks: Track[] = get().likedTracks;
@@ -586,7 +590,7 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
   },
 
   exportToSpotify: async () => {
-    const { tokens, flowTracks, isMockMode, flowIntent, flowResult } = get();
+    const { tokens, flowTracks, isMockMode, flowIntent, flowResult, pendingPlaylist } = get();
 
     if (flowTracks.length === 0) {
       set({ errorMessage: 'No hay canciones para exportar. Genera un set primero.' });
@@ -595,11 +599,15 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
 
     const intentConfig = COGNITIVE_INTENTS[flowIntent];
     const durationMins = Math.round((flowResult?.computed_total_duration_ms || 3600000) / 60000);
+    const playlistTitle = `WaveFlow: ${intentConfig.name} (${durationMins}m)`;
+    const description = `${intentConfig.tagline}. Calibrado por WaveFlow AI con arquitectura de transición de BPM y valencia.`;
 
     set({
       status: {
         step: 'exporting',
-        message: 'Creando playlist y ordenando canciones en Spotify...',
+        message: pendingPlaylist
+          ? `Reintentando agregar canciones a la playlist "${pendingPlaylist.name}"...`
+          : 'Creando playlist y ordenando canciones en Spotify...',
         progress: 20
       },
       errorMessage: null
@@ -609,12 +617,13 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
       if (isMockMode || !tokens?.accessToken) {
         await new Promise((r) => setTimeout(r, 1200));
         const mockExport = {
-          id: 'mock-exported-playlist-id',
-          url: 'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M',
-          name: `WaveFlow — ${intentConfig.name}`
+          id: pendingPlaylist?.id || 'mock-exported-playlist-id',
+          url: pendingPlaylist?.url || 'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M',
+          name: pendingPlaylist?.name || `WaveFlow — ${intentConfig.name}`
         };
         set({
           exportedPlaylist: mockExport,
+          pendingPlaylist: null,
           status: {
             step: 'exported',
             message: `¡Playlist "${mockExport.name}" exportada con éxito! (${flowTracks.length} canciones)`,
@@ -624,22 +633,30 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
         return;
       }
 
-      const playlistTitle = `WaveFlow: ${intentConfig.name} (${durationMins}m)`;
-      const description = `${intentConfig.tagline}. Calibrado por WaveFlow AI con arquitectura de transición de BPM y valencia.`;
-
       const result = await exportToSpotifyPlaylist(
         tokens.accessToken,
         get().user?.id || 'me',
         flowTracks,
         playlistTitle,
-        description
+        description,
+        pendingPlaylist?.id,
+        (added, total) => {
+          set({
+            status: {
+              step: 'exporting',
+              message: `Agregando canciones a Spotify (${added}/${total})...`,
+              progress: Math.min(95, Math.round(20 + (added / total) * 75))
+            }
+          });
+        }
       );
 
       set({
         exportedPlaylist: result,
+        pendingPlaylist: null,
         status: {
           step: 'exported',
-          message: `¡Set exportado a Spotify! "${result.name}"`,
+          message: `¡Set exportado a Spotify! "${result.name}" (${result.totalTracksAdded || flowTracks.length} canciones)`,
           progress: 100
         }
       });
@@ -655,6 +672,15 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
       }
     } catch (err: any) {
       console.error('Export error:', err);
+      if (err?.playlistId) {
+        set({
+          pendingPlaylist: {
+            id: err.playlistId,
+            url: err.playlistUrl || `https://open.spotify.com/playlist/${err.playlistId}`,
+            name: playlistTitle
+          }
+        });
+      }
       set({
         status: {
           step: 'error',

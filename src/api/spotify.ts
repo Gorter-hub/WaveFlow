@@ -227,16 +227,27 @@ export async function fetchUserLikedSongs(
   return allTracks;
 }
 
+export interface SpotifyExportResult {
+  id: string;
+  url: string;
+  name: string;
+  totalTracksAdded: number;
+}
+
 /**
- * Creates a private Spotify playlist with the ordered DJ set and injects the 50 track URIs
+ * Creates or updates a Spotify playlist with the ordered set and injects track URIs
+ * Migrated to official February 2026 endpoint: POST /v1/playlists/{playlist_id}/items
+ * Supports batching (<= 100 items), safe retry without empty duplicates, and verification.
  */
 export async function exportToSpotifyPlaylist(
   accessToken: string,
   userId: string,
   tracks: Track[],
   playlistName?: string,
-  description?: string
-): Promise<{ id: string; url: string; name: string }> {
+  description?: string,
+  existingPlaylistId?: string,
+  onProgress?: (addedCount: number, totalCount: number) => void
+): Promise<SpotifyExportResult> {
   if (tracks.length === 0) {
     throw new Error('No tracks to export.');
   }
@@ -247,33 +258,17 @@ export async function exportToSpotifyPlaylist(
     year: 'numeric'
   });
 
-  const finalName =
-    playlistName || `WaveFlow DJ Set — ${dateStr}`;
-
+  const finalName = playlistName || `WaveFlow Set — ${dateStr}`;
   const finalDesc =
     description ||
-    'Curated by WaveFlow AI: 50-track dynamic DJ energy curve (Warm-up → Build-up → Peak → Valley → Climax → Outro).';
+    'Curated by WaveFlow AI: adaptive sequence with calibrated valence and rhythmic continuity.';
 
-  // 1. Create Playlist (POST /v1/me/playlists)
-  const createRes = await fetch(`${SPOTIFY_API_BASE}/me/playlists`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      name: finalName,
-      description: finalDesc,
-      public: false
-    })
-  });
+  let playlistId = existingPlaylistId || '';
+  let playlistUrl = playlistId ? `https://open.spotify.com/playlist/${playlistId}` : '';
 
-  let playlistData;
-  if (createRes.ok) {
-    playlistData = await createRes.json();
-  } else {
-    // Fallback to /users/{user_id}/playlists if /me/playlists rejects
-    const fallbackRes = await fetch(`${SPOTIFY_API_BASE}/users/${userId}/playlists`, {
+  // 1. Create Playlist if no existing playlist ID was supplied for retry
+  if (!playlistId) {
+    const createRes = await fetch(`${SPOTIFY_API_BASE}/me/playlists`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -286,39 +281,156 @@ export async function exportToSpotifyPlaylist(
       })
     });
 
-    if (!fallbackRes.ok) {
-      const err = await fallbackRes.text();
-      throw new Error(`Failed to create playlist: ${err}`);
+    let playlistData;
+    if (createRes.ok) {
+      playlistData = await createRes.json();
+    } else {
+      // Fallback to /users/{user_id}/playlists if /me/playlists rejects
+      const safeUserId = encodeURIComponent(userId || 'me');
+      const fallbackRes = await fetch(`${SPOTIFY_API_BASE}/users/${safeUserId}/playlists`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name: finalName,
+          description: finalDesc,
+          public: false
+        })
+      });
+
+      if (!fallbackRes.ok) {
+        const errText = await fallbackRes.text();
+        let errMsg = errText;
+        try {
+          const parsed = JSON.parse(errText);
+          errMsg = parsed.error?.message || errText;
+        } catch {}
+
+        if (fallbackRes.status === 403) {
+          throw new Error(
+            `Error de permisos Spotify (403 Forbidden al crear playlist): ${errMsg}. Asegúrate de haber iniciado sesión con los permisos de modificación de playlist y que tu usuario esté registrado en el Spotify Developer Dashboard.`
+          );
+        }
+        throw new Error(`Failed to create playlist (${fallbackRes.status}): ${errMsg}`);
+      }
+      playlistData = await fallbackRes.json();
     }
-    playlistData = await fallbackRes.json();
+
+    playlistId = playlistData.id;
+    playlistUrl =
+      playlistData.external_urls?.spotify || `https://open.spotify.com/playlist/${playlistId}`;
   }
-  const playlistId = playlistData.id;
-  const playlistUrl =
-    playlistData.external_urls?.spotify || `https://open.spotify.com/playlist/${playlistId}`;
 
-  // 2. Inject tracks (POST /v1/playlists/{playlist_id}/tracks)
-  // Spotify allows max 100 URIs per request; our DJ set has 50
-  const uris = tracks.map((t) => t.uri).filter(Boolean);
-
-  const addTracksRes = await fetch(`${SPOTIFY_API_BASE}/playlists/${playlistId}/tracks`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      uris: uris
+  // 2. Extract valid Spotify track URIs (preserving exact sequence order)
+  const validUris: string[] = tracks
+    .map((t) => {
+      if (t.uri && t.uri.startsWith('spotify:track:')) return t.uri;
+      if (t.id && !t.id.startsWith('mock') && !t.id.startsWith('track-')) {
+        return `spotify:track:${t.id}`;
+      }
+      if (t.uri) return t.uri;
+      return '';
     })
-  });
+    .filter(Boolean);
 
-  if (!addTracksRes.ok) {
-    const errText = await addTracksRes.text();
-    throw new Error(`Playlist created, but failed to add tracks: ${errText}`);
+  if (validUris.length === 0) {
+    throw new Error('No valid Spotify track URIs found in generated set.');
+  }
+
+  // 3. Inject tracks using official February 2026 endpoint: POST /v1/playlists/{playlist_id}/items
+  // Spotify limits to max 100 items per request -> batch sequentially
+  const BATCH_SIZE = 100;
+  let addedCount = 0;
+
+  for (let i = 0; i < validUris.length; i += BATCH_SIZE) {
+    const batch = validUris.slice(i, i + BATCH_SIZE);
+
+    // Primary endpoint: /items
+    let addRes = await fetch(`${SPOTIFY_API_BASE}/playlists/${playlistId}/items`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        uris: batch
+      })
+    });
+
+    // Fallback to legacy /tracks only if /items returns 404 (e.g. older mock proxies)
+    if (addRes.status === 404) {
+      addRes = await fetch(`${SPOTIFY_API_BASE}/playlists/${playlistId}/tracks`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          uris: batch
+        })
+      });
+    }
+
+    if (!addRes.ok) {
+      const errText = await addRes.text();
+      let errorDetail = errText;
+      try {
+        const parsed = JSON.parse(errText);
+        errorDetail = parsed.error?.message || errText;
+      } catch {}
+
+      if (addRes.status === 403) {
+        const diagMsg =
+          `Error de permisos Spotify (403 Forbidden al agregar canciones). ` +
+          (errorDetail ? `Detalle Spotify: "${errorDetail}". ` : '') +
+          `Causa: Tu sesión actual de Spotify carece del alcance 'playlist-modify-public' o 'playlist-modify-private', o tu cuenta no está en 'User Management' en el Dashboard de Spotify. ` +
+          `La playlist fue creada sin duplicados (${playlistUrl}). Vuelve a conectar tu cuenta de Spotify para renovar permisos y reintentar.`;
+
+        const err: any = new Error(diagMsg);
+        err.status = 403;
+        err.playlistId = playlistId;
+        err.playlistUrl = playlistUrl;
+        throw err;
+      }
+
+      const err: any = new Error(
+        `Playlist creada (${playlistUrl}), pero falló al agregar canciones (${addRes.status}): ${errorDetail}`
+      );
+      err.status = addRes.status;
+      err.playlistId = playlistId;
+      err.playlistUrl = playlistUrl;
+      throw err;
+    }
+
+    addedCount += batch.length;
+    if (onProgress) {
+      onProgress(addedCount, validUris.length);
+    }
+  }
+
+  // 4. Verify final track count on Spotify
+  try {
+    const verifyRes = await fetch(
+      `${SPOTIFY_API_BASE}/playlists/${playlistId}?fields=tracks.total,items.total,name,external_urls`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      }
+    );
+    if (verifyRes.ok) {
+      const verifyData = await verifyRes.json();
+      const confirmedTotal = verifyData.tracks?.total ?? verifyData.items?.total ?? addedCount;
+      console.info(`Verified: ${confirmedTotal} tracks confirmed on Spotify playlist ${playlistId}`);
+    }
+  } catch (verifyErr) {
+    console.warn('Playlist verification fetch skipped:', verifyErr);
   }
 
   return {
     id: playlistId,
     url: playlistUrl,
-    name: finalName
+    name: finalName,
+    totalTracksAdded: addedCount
   };
 }

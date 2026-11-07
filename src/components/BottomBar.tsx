@@ -27,7 +27,8 @@ export const BottomBar: React.FC = () => {
     status,
     flowTracks,
     exportToSpotify,
-    exportedPlaylist
+    exportedPlaylist,
+    pendingPlaylist
   } = useWaveFlowStore();
 
   const [currentTime, setCurrentTime] = useState(0);
@@ -422,20 +423,33 @@ export const BottomBar: React.FC = () => {
             className={`flex items-center justify-center gap-2 px-5 py-2.5 rounded-full font-black text-xs uppercase tracking-wider transition-all duration-200 shadow-xl ${
               !hasTracks || isExporting
                 ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700/50'
+                : pendingPlaylist
+                ? 'bg-amber-400 hover:bg-amber-300 text-black hover:scale-105 active:scale-95 shadow-amber-400/30'
                 : 'bg-spotify hover:bg-spotify-hover text-black hover:scale-105 active:scale-95 shadow-spotify/30'
             }`}
+            title={
+              pendingPlaylist
+                ? `Reintentar agregar canciones a la playlist "${pendingPlaylist.name}"`
+                : 'Exportar set a Spotify'
+            }
           >
             {isExporting ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin text-black" />
-                <span>Exportando...</span>
+                <span>{pendingPlaylist ? 'Reintentando...' : 'Exportando...'}</span>
               </>
             ) : (
               <>
                 <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
                   <path d="M12 2C6.477 2 2 6.477 2 12c0 5.524 4.477 10 10 10s10-4.476 10-10c0-5.523-4.477-10-10-10zm4.587 14.428a.627.627 0 0 1-.861.208c-2.358-1.441-5.327-1.767-8.825-.968a.627.627 0 1 1-.28-1.223c3.829-.875 7.119-.508 9.758 1.121.298.183.391.573.208.862zm1.226-2.724a.784.784 0 0 1-1.079.258c-2.7-1.66-6.816-2.14-10.01-1.171a.785.785 0 0 1-.466-1.5c3.649-1.107 8.2-.577 11.297 1.334.356.219.472.684.258 1.079zm.106-2.836C14.685 9.07 9.35 8.89 6.262 9.827a.942.942 0 1 1-.55-1.802c3.541-1.075 9.444-.863 13.208 1.37a.942.942 0 1 1-.999 1.603z" />
                 </svg>
-                <span>{exportedPlaylist ? 'Re-Exportar' : 'Export to Spotify'}</span>
+                <span>
+                  {pendingPlaylist
+                    ? 'Reintentar Exportar'
+                    : exportedPlaylist
+                    ? 'Re-Exportar'
+                    : 'Export to Spotify'}
+                </span>
               </>
             )}
           </button>
