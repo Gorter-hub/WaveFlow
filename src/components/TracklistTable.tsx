@@ -1,7 +1,7 @@
 import React from 'react';
 import { Track } from '../types';
-import { formatDuration, getEnergyColor, getPhaseBadgeColor } from '../utils/formatters';
-import { Clock, Play, Volume2 } from 'lucide-react';
+import { formatDuration, getEnergyColor } from '../utils/formatters';
+import { Clock, Play, Volume2, Activity } from 'lucide-react';
 
 interface TracklistTableProps {
   tracks: Track[];
@@ -16,7 +16,6 @@ export const TracklistTable: React.FC<TracklistTableProps> = ({
   onSelectTrack,
   selectedPhaseFilter = 'all'
 }) => {
-  // Filter by phase if selected
   const displayedTracks = React.useMemo(() => {
     if (!selectedPhaseFilter || selectedPhaseFilter === 'all') {
       return tracks;
@@ -35,12 +34,12 @@ export const TracklistTable: React.FC<TracklistTableProps> = ({
   return (
     <div className="w-full">
       {/* Table Header */}
-      <div className="sticky top-0 z-10 bg-zinc-900/90 backdrop-blur-md border-b border-zinc-800/80 px-4 py-2.5 text-xs font-medium text-zinc-400 grid grid-cols-[36px_minmax(220px,3fr)_minmax(140px,2fr)_150px_110px_70px] items-center gap-4 uppercase tracking-wider select-none">
+      <div className="sticky top-0 z-10 bg-zinc-900/90 backdrop-blur-md border-b border-zinc-800/80 px-4 py-2.5 text-xs font-medium text-zinc-400 grid grid-cols-[36px_minmax(220px,3fr)_minmax(130px,1.8fr)_130px_140px_70px] items-center gap-4 uppercase tracking-wider select-none">
         <div className="text-center font-mono">#</div>
-        <div>Title</div>
-        <div className="hidden md:block">Album</div>
-        <div className="text-center">Energy Score</div>
-        <div className="hidden sm:block text-center">Mood / Vibe</div>
+        <div>Title & Artist</div>
+        <div className="hidden md:block">BPM & Cadence</div>
+        <div className="text-center">Energy Vector</div>
+        <div className="hidden sm:block text-center">Mood & Transition</div>
         <div className="text-right flex justify-end pr-2">
           <Clock className="w-4 h-4 text-zinc-500" />
         </div>
@@ -50,8 +49,8 @@ export const TracklistTable: React.FC<TracklistTableProps> = ({
       <div className="divide-y divide-zinc-800/30">
         {displayedTracks.map((track, idx) => {
           const isActive = activeTrackId === track.id;
-          const energyMeta = getEnergyColor(track.energy);
-          const phaseColor = getPhaseBadgeColor(track.phase);
+          const energyVal = track.energy_score ?? track.energy ?? 50;
+          const energyMeta = getEnergyColor(energyVal);
 
           // Check if this row is the start of a new phase (for divider)
           const isPhaseStart =
@@ -60,28 +59,30 @@ export const TracklistTable: React.FC<TracklistTableProps> = ({
 
           return (
             <React.Fragment key={track.id}>
-              {/* Phase Header Divider */}
+              {/* Dynamic Phase Header Divider */}
               {isPhaseStart && track.phase && (
-                <div className="px-4 py-2 bg-zinc-950/80 border-t border-b border-zinc-800/60 flex items-center justify-between text-xs font-semibold tracking-wider">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: energyMeta.accent }} />
-                    <span className="text-zinc-200 uppercase">{track.phase}</span>
+                <div className="px-4 py-2.5 bg-zinc-950/90 border-t border-b border-zinc-800/80 flex items-center justify-between text-xs font-semibold tracking-wider">
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: energyMeta.accent }} />
+                    <span className="text-zinc-100 uppercase tracking-widest font-black">{track.phase}</span>
                     <span className="text-zinc-500 text-[11px] font-normal font-mono">
-                      (Tracks {getPhaseTrackRange(track.phase)})
+                      (Begins #{track.overallIndex || idx + 1})
                     </span>
                   </div>
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full border ${phaseColor}`}>
-                    {getPhaseEnergyTarget(track.phase)}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] px-2.5 py-0.5 rounded-full border border-zinc-700 bg-zinc-900 text-zinc-300 font-mono">
+                      Phase Focus
+                    </span>
+                  </div>
                 </div>
               )}
 
               {/* Individual Track Row */}
               <div
                 onClick={() => onSelectTrack(track)}
-                className={`group px-4 py-2.5 rounded-lg grid grid-cols-[36px_minmax(220px,3fr)_minmax(140px,2fr)_150px_110px_70px] items-center gap-4 cursor-pointer transition-colors duration-150 ${
+                className={`group px-4 py-2.5 rounded-lg grid grid-cols-[36px_minmax(220px,3fr)_minmax(130px,1.8fr)_130px_140px_70px] items-center gap-4 cursor-pointer transition-colors duration-150 ${
                   isActive
-                    ? 'bg-zinc-800/90 text-white shadow-inner'
+                    ? 'bg-zinc-800/95 text-white shadow-inner'
                     : 'hover:bg-zinc-800/50 text-zinc-300'
                 }`}
               >
@@ -114,7 +115,7 @@ export const TracklistTable: React.FC<TracklistTableProps> = ({
                   )}
                   <div className="min-w-0 flex-1">
                     <p
-                      className={`font-medium text-sm truncate leading-tight ${
+                      className={`font-semibold text-sm truncate leading-tight ${
                         isActive ? 'text-spotify' : 'text-zinc-100 group-hover:text-white'
                       }`}
                     >
@@ -126,9 +127,15 @@ export const TracklistTable: React.FC<TracklistTableProps> = ({
                   </div>
                 </div>
 
-                {/* Album */}
-                <div className="hidden md:block text-xs text-zinc-400 truncate group-hover:text-zinc-300">
-                  {track.album}
+                {/* BPM & Cadence */}
+                <div className="hidden md:flex flex-col text-xs font-mono text-zinc-400">
+                  <div className="flex items-center gap-1.5 text-zinc-200">
+                    <Activity className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="font-bold">{track.bpm} BPM</span>
+                  </div>
+                  <span className="text-[10px] text-zinc-500 truncate">
+                    {track.vocal_presence !== undefined ? `${track.vocal_presence}% vocals` : track.album}
+                  </span>
                 </div>
 
                 {/* Energy Score Pill & Bar */}
@@ -137,13 +144,12 @@ export const TracklistTable: React.FC<TracklistTableProps> = ({
                     className={`flex items-center gap-2 px-2.5 py-1 rounded-full border text-xs font-mono font-medium ${energyMeta.bg} ${energyMeta.border} ${energyMeta.text}`}
                   >
                     <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: energyMeta.accent }} />
-                    <span>{track.energy ?? 50}%</span>
-                    {/* Mini bar */}
+                    <span>{energyVal}%</span>
                     <div className="w-8 h-1.5 bg-black/40 rounded-full overflow-hidden hidden sm:block">
                       <div
                         className="h-full rounded-full"
                         style={{
-                          width: `${track.energy ?? 50}%`,
+                          width: `${energyVal}%`,
                           backgroundColor: energyMeta.accent
                         }}
                       />
@@ -151,11 +157,16 @@ export const TracklistTable: React.FC<TracklistTableProps> = ({
                   </div>
                 </div>
 
-                {/* Mood / Valence */}
-                <div className="hidden sm:flex items-center justify-center">
-                  <span className="text-[11px] font-mono text-zinc-400 px-2 py-0.5 rounded bg-zinc-900/60 border border-zinc-800">
-                    {getValenceLabel(track.valence)} ({track.valence ?? 50}%)
+                {/* Mood & Transition */}
+                <div className="hidden sm:flex flex-col items-center justify-center text-center">
+                  <span className="text-[10.5px] font-mono text-zinc-300 px-2 py-0.5 rounded bg-zinc-900/80 border border-zinc-800">
+                    {track.mood_vibe || getValenceLabel(track.valence_score ?? track.valence)}
                   </span>
+                  {track.transition_note && (
+                    <span className="text-[9.5px] text-cyan-400 font-mono mt-0.5 truncate max-w-[130px]">
+                      {track.transition_note}
+                    </span>
+                  )}
                 </div>
 
                 {/* Duration */}
@@ -170,44 +181,6 @@ export const TracklistTable: React.FC<TracklistTableProps> = ({
     </div>
   );
 };
-
-function getPhaseTrackRange(phase?: string): string {
-  switch (phase) {
-    case 'Warm-up':
-      return '1 – 10';
-    case 'Build-up':
-      return '11 – 20';
-    case 'Peak':
-      return '21 – 25';
-    case 'Valley/Respiro':
-      return '26 – 32';
-    case 'Climax':
-      return '33 – 45';
-    case 'Outro':
-      return '46 – 50';
-    default:
-      return '';
-  }
-}
-
-function getPhaseEnergyTarget(phase?: string): string {
-  switch (phase) {
-    case 'Warm-up':
-      return 'Target: 40-60 Energy';
-    case 'Build-up':
-      return 'Target: 61-80 Energy';
-    case 'Peak':
-      return 'Target: 81-100 Energy';
-    case 'Valley/Respiro':
-      return 'Target: 30-50 Energy';
-    case 'Climax':
-      return 'Target: 81-100 Energy';
-    case 'Outro':
-      return 'Target: 40-60 Energy';
-    default:
-      return '';
-  }
-}
 
 function getValenceLabel(valence?: number): string {
   if (valence === undefined) return 'Balanced';

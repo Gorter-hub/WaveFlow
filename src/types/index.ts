@@ -1,3 +1,50 @@
+export type CognitiveFlowIntentId =
+  | 'deep_focus'
+  | 'festival_explosive'
+  | 'night_drive'
+  | 'genre_cadence';
+
+export type FlowPhaseName = string;
+export type FlowStyleId = CognitiveFlowIntentId;
+
+
+export interface CognitiveIntentConfig {
+  id: CognitiveFlowIntentId;
+  name: string;
+  tagline: string;
+  neuroscience_rationale: string;
+  duration_target_mins: [number, number]; // [minMins, maxMins]
+  target_energy_range: [number, number];
+  bpm_tolerance: number; // max allowable BPM delta between adjacent tracks
+  vocal_threshold_max?: number; // max allowable vocal presence for focus
+  badge: string;
+  color: string;
+  accentGradient: string;
+  phases: CognitivePhaseTemplate[];
+}
+
+export interface CognitivePhaseTemplate {
+  name: string;
+  description: string;
+  duration_ratio: number; // 0 to 1 proportion of total set duration
+  target_energy_range: [number, number];
+  target_valence_range: [number, number];
+  color: string;
+  gradient: string;
+}
+
+export interface FlowPhaseConfig {
+  name: string;
+  description: string;
+  trackCount: number;
+  duration_ms: number;
+  minEnergy: number;
+  maxEnergy: number;
+  color: string;
+  gradient: string;
+  rangeIndex: [number, number]; // 1-based start and end indices
+}
+
 export interface Track {
   id: string;
   name: string;
@@ -8,42 +55,32 @@ export interface Track {
   duration_ms: number;
   uri: string;
   preview_url?: string | null;
-  energy?: number; // 0 - 100
-  valence?: number; // 0 - 100
-  phase?: FlowPhaseName;
+
+  // Persistent Cognitive Metadata Vectors
+  energy_score: number; // 0 - 100
+  valence_score: number; // 0 - 100 (emotional brightness)
+  bpm: number; // Tempo
+  vocal_presence: number; // 0 - 100 (0 = purely instrumental, 100 = heavy vocals)
+  mood_vibe: string; // Semantic descriptor: "hypnotic", "driving", "ambient", "euphoric", "introspective"
+  genre_vibe?: string;
+
+  // Backwards compatibility aliases
+  energy?: number;
+  valence?: number;
+
+  // Intent Curated Set Placement
+  phase?: string;
   phaseIndex?: number;
   overallIndex?: number;
+  transition_note?: string;
 }
 
-export type FlowPhaseName =
-  | 'Warm-up'
-  | 'Build-up'
-  | 'Peak'
-  | 'Valley/Respiro'
-  | 'Climax'
-  | 'Outro';
-
-export type FlowStyleId = 'classic' | 'festival' | 'deep' | 'relentless';
-
-export interface FlowStylePreset {
-  id: FlowStyleId;
-  name: string;
-  tagline: string;
-  badge: string;
-  description: string;
-  phaseWeights: { [key in FlowPhaseName]: number }; // percentage weights summing to 100
-  energyRanges?: { [key in FlowPhaseName]?: [number, number] };
-}
-
-export interface FlowPhaseConfig {
-  name: FlowPhaseName;
-  description: string;
-  trackCount: number;
-  minEnergy: number;
-  maxEnergy: number;
-  color: string;
-  gradient: string;
-  rangeIndex: [number, number]; // 1-based start and end indices
+export interface CuratedSetResult {
+  flow_intent: CognitiveFlowIntentId;
+  computed_total_duration_ms: number;
+  computed_total_tracks: number;
+  phases: FlowPhaseConfig[];
+  curated_set: Track[];
 }
 
 export interface GenerationStatus {
@@ -73,4 +110,7 @@ export interface GeminiEnergyScore {
   id: string;
   energy: number;
   valence: number;
+  bpm?: number;
+  vocal_presence?: number;
+  mood_vibe?: string;
 }

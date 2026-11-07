@@ -1,14 +1,15 @@
 import React, { useState, useMemo } from 'react';
-import { Track, FlowPhaseConfig, FlowStyleId } from '../types';
-import { getPhaseConfigsForStyle } from '../algorithm/curveGenerator';
-import { getEnergyColor } from '../utils/formatters';
+import { Track, FlowPhaseConfig, CognitiveFlowIntentId } from '../types';
+import { getPhaseConfigsForStyle, COGNITIVE_INTENTS } from '../algorithm/curveGenerator';
+import { getEnergyColor, formatDuration } from '../utils/formatters';
 
 interface EnergyCurveChartProps {
   tracks: Track[];
   activeTrackId?: string;
   onSelectTrack?: (track: Track) => void;
   selectedPhase?: string;
-  styleId?: FlowStyleId;
+  intentId?: CognitiveFlowIntentId;
+  phases?: FlowPhaseConfig[];
 }
 
 export const EnergyCurveChart: React.FC<EnergyCurveChartProps> = ({
@@ -16,15 +17,18 @@ export const EnergyCurveChart: React.FC<EnergyCurveChartProps> = ({
   activeTrackId,
   onSelectTrack,
   selectedPhase,
-  styleId = 'classic'
+  intentId = 'deep_focus',
+  phases
 }) => {
   const [hoveredTrack, setHoveredTrack] = useState<Track | null>(null);
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
 
-  const phaseConfigs = useMemo(
-    () => getPhaseConfigsForStyle(styleId, tracks.length || 50),
-    [styleId, tracks.length]
-  );
+  const phaseConfigs = useMemo(() => {
+    if (phases && phases.length > 0) return phases;
+    return getPhaseConfigsForStyle(intentId, tracks.length || 22);
+  }, [phases, intentId, tracks.length]);
+
+  const currentIntent = COGNITIVE_INTENTS[intentId] || COGNITIVE_INTENTS.deep_focus;
 
   // SVG dimensions & padding
   const width = 1000;
@@ -33,16 +37,14 @@ export const EnergyCurveChart: React.FC<EnergyCurveChartProps> = ({
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
 
-  // Compute coordinate points for the 50 tracks
+  // Compute coordinate points for the tracks
   const points = useMemo(() => {
     if (!tracks || tracks.length === 0) return [];
 
     const total = tracks.length;
     return tracks.map((track, i) => {
-      // X distributes evenly from left to right
       const x = padding.left + (i / Math.max(1, total - 1)) * chartWidth;
-      // Y: Energy 0 is bottom, Energy 100 is top
-      const energy = track.energy ?? 50;
+      const energy = track.energy_score ?? track.energy ?? 50;
       const y = padding.top + chartHeight - (energy / 100) * chartHeight;
       return { x, y, track, index: i };
     });
@@ -84,11 +86,12 @@ export const EnergyCurveChart: React.FC<EnergyCurveChartProps> = ({
 
   // Phase region bands for background & phase headers
   const phaseRegions = useMemo(() => {
-    if (tracks.length === 0) return [];
+    if (tracks.length === 0 || phaseConfigs.length === 0) return [];
     let currentX = padding.left;
+    const totalSetTracks = phaseConfigs.reduce((acc, p) => acc + p.trackCount, 0) || tracks.length;
 
     return phaseConfigs.map((phase) => {
-      const phaseWidth = (phase.trackCount / tracks.length) * chartWidth;
+      const phaseWidth = (phase.trackCount / Math.max(1, totalSetTracks)) * chartWidth;
       const region = {
         phase,
         x: currentX,
@@ -108,22 +111,24 @@ export const EnergyCurveChart: React.FC<EnergyCurveChartProps> = ({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
           </svg>
         </div>
-        <p className="text-sm font-medium">Click "Generate Flow" to calculate the 6-phase energy curve</p>
+        <p className="text-sm font-medium">Click "Generate Flow" to synthesize the {currentIntent.name} neuroscience curve</p>
       </div>
     );
   }
+
+  const totalDurationMs = tracks.reduce((acc, t) => acc + (t.duration_ms || 210000), 0);
 
   return (
     <div className="relative w-full bg-zinc-950/90 rounded-2xl border border-zinc-800/80 p-4 shadow-2xl backdrop-blur-md overflow-hidden">
       {/* Chart Header / Title & Legend */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-2 px-2">
         <div className="flex items-center gap-2">
-          <div className="w-2.5 h-2.5 rounded-full bg-spotify animate-pulse" />
+          <div className="w-2.5 h-2.5 rounded-full animate-pulse" style={{ backgroundColor: currentIntent.color }} />
           <h3 className="text-sm font-semibold text-zinc-200 tracking-wide uppercase">
-            DJ Energy Dynamics Curve
+            {currentIntent.name} Dynamic Arc
           </h3>
           <span className="text-xs text-zinc-500 font-mono">
-            ({tracks.length} Tracks • 6 Flow Phases)
+            ({tracks.length} Tracks • {formatDuration(totalDurationMs)} • {phaseConfigs.length} Cognitive Phases)
           </span>
         </div>
 
@@ -139,7 +144,7 @@ export const EnergyCurveChart: React.FC<EnergyCurveChartProps> = ({
                 }`}
               >
                 <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5" style={{ backgroundColor: cfg.color }} />
-                {cfg.name} ({cfg.minEnergy}-{cfg.maxEnergy})
+                {cfg.name} ({cfg.minEnergy}-{cfg.maxEnergy}%)
               </span>
             );
           })}
@@ -164,19 +169,16 @@ export const EnergyCurveChart: React.FC<EnergyCurveChartProps> = ({
           }}
         >
           <defs>
-            {/* Energy Curve Area Gradient */}
             <linearGradient id="curveGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#34d399" stopOpacity="0.45" />    {/* Warm-up */}
-              <stop offset="25%" stopColor="#1DB954" stopOpacity="0.55" />   {/* Build-up */}
-              <stop offset="45%" stopColor="#fbbf24" stopOpacity="0.65" />   {/* Peak */}
-              <stop offset="60%" stopColor="#818cf8" stopOpacity="0.35" />   {/* Valley */}
-              <stop offset="85%" stopColor="#f43f5e" stopOpacity="0.75" />   {/* Climax */}
-              <stop offset="100%" stopColor="#14b8a6" stopOpacity="0.45" />  {/* Outro */}
+              {phaseConfigs.map((p, idx) => {
+                const offset = Math.round((idx / Math.max(1, phaseConfigs.length - 1)) * 100);
+                return <stop key={p.name} offset={`${offset}%`} stopColor={p.color} stopOpacity="0.65" />;
+              })}
             </linearGradient>
 
             <linearGradient id="areaFade" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor="#1DB954" stopOpacity="0.3" />
-              <stop offset="70%" stopColor="#1DB954" stopOpacity="0.05" />
+              <stop offset="0%" stopColor={currentIntent.color} stopOpacity="0.3" />
+              <stop offset="70%" stopColor={currentIntent.color} stopOpacity="0.05" />
               <stop offset="100%" stopColor="#000000" stopOpacity="0.0" />
             </linearGradient>
 
@@ -192,7 +194,6 @@ export const EnergyCurveChart: React.FC<EnergyCurveChartProps> = ({
             const isPhaseActive = selectedPhase === region.phase.name;
             return (
               <g key={region.phase.name}>
-                {/* Phase background zone */}
                 <rect
                   x={region.x}
                   y={padding.top}
@@ -203,7 +204,6 @@ export const EnergyCurveChart: React.FC<EnergyCurveChartProps> = ({
                   className="transition-opacity duration-200"
                 />
 
-                {/* Vertical Phase Divider */}
                 {idx > 0 && (
                   <line
                     x1={region.x}
@@ -216,55 +216,37 @@ export const EnergyCurveChart: React.FC<EnergyCurveChartProps> = ({
                   />
                 )}
 
-                {/* Phase Label at Top */}
                 <text
                   x={region.centerX}
                   y={padding.top - 12}
                   textAnchor="middle"
-                  fill={isPhaseActive ? region.phase.color : '#a1a1aa'}
-                  fontSize={10}
-                  fontWeight={isPhaseActive ? '700' : '500'}
-                  letterSpacing="0.05em"
+                  className="text-[10px] font-bold fill-zinc-400 uppercase tracking-widest pointer-events-none"
                 >
-                  {region.phase.name.toUpperCase()}
-                </text>
-
-                {/* Target Energy Range */}
-                <text
-                  x={region.centerX}
-                  y={padding.top - 2}
-                  textAnchor="middle"
-                  fill="#71717a"
-                  fontSize={8.5}
-                  fontFamily="monospace"
-                >
-                  ({region.phase.minEnergy}-{region.phase.maxEnergy}%)
+                  {region.phase.name}
                 </text>
               </g>
             );
           })}
 
-          {/* Horizontal Gridlines & Y-Axis Energy Labels */}
-          {[100, 80, 60, 40, 20].map((val) => {
+          {/* Energy Y-Axis Horizontal Gridlines */}
+          {[0, 25, 50, 75, 100].map((val) => {
             const y = padding.top + chartHeight - (val / 100) * chartHeight;
             return (
               <g key={val}>
                 <line
                   x1={padding.left}
                   y1={y}
-                  x2={width - padding.right}
+                  x2={padding.left + chartWidth}
                   y2={y}
                   stroke="#27272a"
-                  strokeWidth={0.8}
-                  strokeDasharray={val === 50 || val === 80 ? 'none' : '2 4'}
+                  strokeWidth={val === 50 ? 1 : 0.5}
+                  strokeDasharray={val === 50 ? '2 2' : undefined}
                 />
                 <text
                   x={padding.left - 8}
                   y={y + 3.5}
                   textAnchor="end"
-                  fill="#71717a"
-                  fontSize={9.5}
-                  fontFamily="monospace"
+                  className="text-[9.5px] font-mono fill-zinc-600 select-none"
                 >
                   {val}%
                 </text>
@@ -272,25 +254,57 @@ export const EnergyCurveChart: React.FC<EnergyCurveChartProps> = ({
             );
           })}
 
-          {/* Area Fill Under Curve */}
-          <path d={areaD} fill="url(#areaFade)" />
+          {/* Shaded Area Under Curve */}
+          {areaD && (
+            <path
+              d={areaD}
+              fill="url(#areaFade)"
+              className="pointer-events-none transition-all duration-300"
+            />
+          )}
 
-          {/* Main Spline Curve */}
-          <path
-            d={pathD}
-            fill="none"
-            stroke="url(#curveGradient)"
-            strokeWidth={3.5}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            filter="url(#glow)"
-          />
+          {/* Main Spline Curve Path */}
+          {pathD && (
+            <path
+              d={pathD}
+              fill="none"
+              stroke="url(#curveGradient)"
+              strokeWidth={3}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="pointer-events-none transition-all duration-300"
+              filter="url(#glow)"
+            />
+          )}
 
-          {/* Track Data Points */}
+          {/* Hover Crosshair Vertical Line */}
+          {hoveredTrack && (
+            (() => {
+              const pt = points.find((p) => p.track.id === hoveredTrack.id);
+              if (!pt) return null;
+              return (
+                <line
+                  x1={pt.x}
+                  y1={padding.top}
+                  x2={pt.x}
+                  y2={padding.top + chartHeight}
+                  stroke="#ffffff"
+                  strokeWidth={1.5}
+                  strokeDasharray="2 2"
+                  className="pointer-events-none opacity-60"
+                />
+              );
+            })()
+          )}
+
+          {/* Data Points (Tracks) */}
           {points.map((pt) => {
-            const isHovered = hoveredTrack?.id === pt.track.id;
-            const isActive = activeTrackId === pt.track.id;
-            const energyClr = getEnergyColor(pt.track.energy).accent;
+            const isActive = pt.track.id === activeTrackId;
+            const isHovered = pt.track.id === hoveredTrack?.id;
+            const isCurrentPhase = selectedPhase ? pt.track.phase === selectedPhase : true;
+
+            const energy = pt.track.energy_score ?? pt.track.energy ?? 50;
+            const colorMeta = getEnergyColor(energy);
 
             return (
               <g
@@ -299,112 +313,81 @@ export const EnergyCurveChart: React.FC<EnergyCurveChartProps> = ({
                 onClick={() => onSelectTrack && onSelectTrack(pt.track)}
                 onMouseEnter={() => setHoveredTrack(pt.track)}
               >
-                {/* Outer halo when active or hovered */}
+                {/* Invisible large hit target for easy mouse interactions */}
+                <circle cx={pt.x} cy={pt.y} r={14} fill="transparent" />
+
+                {/* Outer Glow Ring for Active/Playing or Hovered Track */}
                 {(isActive || isHovered) && (
                   <circle
                     cx={pt.x}
-                    y={pt.y}
-                    r={isActive ? 9 : 7}
-                    fill={energyClr}
-                    fillOpacity={0.3}
-                    className="animate-ping"
+                    cy={pt.y}
+                    r={isActive ? 8 : 6}
+                    fill="none"
+                    stroke={isActive ? '#1DB954' : '#ffffff'}
+                    strokeWidth={2}
+                    className="animate-pulse"
                   />
                 )}
 
-                {/* Main point circle */}
+                {/* Track Node Circle */}
                 <circle
                   cx={pt.x}
-                  y={pt.y}
-                  r={isActive ? 6 : isHovered ? 5.5 : 3}
-                  fill={isActive ? '#ffffff' : energyClr}
-                  stroke={isActive ? energyClr : '#121212'}
-                  strokeWidth={isActive ? 2.5 : 1.5}
-                  className="transition-all duration-150"
+                  cy={pt.y}
+                  r={isActive ? 5 : isHovered ? 4.5 : 3.5}
+                  fill={isActive ? '#1DB954' : colorMeta.accent}
+                  stroke="#000000"
+                  strokeWidth={1.5}
+                  opacity={isCurrentPhase ? 1 : 0.25}
+                  className="transition-all duration-150 group-hover:scale-125"
                 />
-
-                {/* Track Number below x-axis for milestone tracks */}
-                {(pt.index === 0 ||
-                  pt.index === 9 ||
-                  pt.index === 19 ||
-                  pt.index === 24 ||
-                  pt.index === 31 ||
-                  pt.index === 44 ||
-                  pt.index === 49) && (
-                  <text
-                    x={pt.x}
-                    y={padding.top + chartHeight + 18}
-                    textAnchor="middle"
-                    fill="#71717a"
-                    fontSize={9}
-                    fontFamily="monospace"
-                  >
-                    #{pt.index + 1}
-                  </text>
-                )}
               </g>
             );
           })}
-
-          {/* X Axis Baseline */}
-          <line
-            x1={padding.left}
-            y1={padding.top + chartHeight}
-            x2={width - padding.right}
-            y2={padding.top + chartHeight}
-            stroke="#3f3f46"
-            strokeWidth={1}
-          />
-
-          {/* X-Axis bottom label */}
-          <text
-            x={width / 2}
-            y={padding.top + chartHeight + 34}
-            textAnchor="middle"
-            fill="#71717a"
-            fontSize={10}
-            letterSpacing="0.05em"
-          >
-            SET PROGRESSION (TRACKS 1 — 50)
-          </text>
         </svg>
       </div>
 
-      {/* Floating Interactive Tooltip */}
-      {hoveredTrack && (
+      {/* Floating Tooltip Card */}
+      {hoveredTrack && mousePos && (
         <div
-          className="absolute z-30 pointer-events-none bg-zinc-900/95 border border-zinc-700/80 rounded-lg p-2.5 shadow-2xl backdrop-blur-md flex items-center gap-3 transition-transform duration-75 text-xs max-w-xs"
+          className="absolute z-30 pointer-events-none bg-zinc-900/95 border border-zinc-700/80 rounded-xl p-3 shadow-2xl backdrop-blur-md min-w-[220px] transition-all duration-75 text-xs text-white"
           style={{
-            left: mousePos ? Math.min(mousePos.x + 15, 600) : '50%',
-            top: mousePos ? Math.max(mousePos.y - 75, 10) : '20%'
+            left: Math.min(Math.max(mousePos.x + 10, 10), 750),
+            top: Math.max(mousePos.y - 120, 10)
           }}
         >
-          {hoveredTrack.albumArt && (
-            <img
-              src={hoveredTrack.albumArt}
-              alt=""
-              className="w-10 h-10 rounded object-cover shadow border border-zinc-800"
+          <div className="flex items-center gap-2 mb-1">
+            <span
+              className="w-2 h-2 rounded-full flex-shrink-0"
+              style={{ backgroundColor: getEnergyColor(hoveredTrack.energy_score ?? hoveredTrack.energy).accent }}
             />
+            <span className="font-bold text-zinc-400 text-[10px] uppercase tracking-wider">
+              #{hoveredTrack.overallIndex} • {hoveredTrack.phase}
+            </span>
+          </div>
+
+          <div className="font-bold text-sm truncate text-white leading-tight">
+            {hoveredTrack.name}
+          </div>
+          <div className="text-zinc-400 truncate text-[11px] mt-0.5">
+            {hoveredTrack.artist}
+          </div>
+
+          <div className="mt-2.5 pt-2 border-t border-zinc-800 flex items-center justify-between text-[11px]">
+            <span className="font-mono text-spotify font-semibold">
+              ⚡ {hoveredTrack.energy_score ?? hoveredTrack.energy}% Energy
+            </span>
+            <span className="font-mono text-amber-300">
+              {hoveredTrack.bpm} BPM
+            </span>
+            <span className="text-zinc-500 font-mono">
+              {formatDuration(hoveredTrack.duration_ms)}
+            </span>
+          </div>
+          {hoveredTrack.transition_note && (
+            <div className="mt-1.5 text-[10px] text-cyan-400 font-mono truncate">
+              {hoveredTrack.transition_note}
+            </div>
           )}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-300">
-                #{hoveredTrack.overallIndex || '?'}
-              </span>
-              <span className="text-zinc-400 text-[10px] font-medium uppercase tracking-wider">
-                {hoveredTrack.phase}
-              </span>
-            </div>
-            <p className="font-semibold text-white truncate leading-tight mt-0.5">
-              {hoveredTrack.name}
-            </p>
-            <p className="text-zinc-400 truncate text-[11px]">{hoveredTrack.artist}</p>
-          </div>
-          <div className="text-right pl-2 border-l border-zinc-800">
-            <div className="text-sm font-bold text-spotify font-mono">
-              {hoveredTrack.energy}%
-            </div>
-            <div className="text-[9px] text-zinc-500 uppercase tracking-wider">Energy</div>
-          </div>
         </div>
       )}
     </div>

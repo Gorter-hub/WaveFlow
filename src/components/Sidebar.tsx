@@ -1,15 +1,12 @@
 import React from 'react';
 import { useWaveFlowStore } from '../store/useWaveFlowStore';
-import { PHASE_CONFIGS } from '../algorithm/curveGenerator';
+import { COGNITIVE_INTENTS } from '../algorithm/curveGenerator';
 import {
-  Home,
   Sliders,
   Library,
   Settings,
   LogOut,
   Radio,
-  Flame,
-  CheckCircle2,
   Sparkles,
   Zap
 } from 'lucide-react';
@@ -28,8 +25,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings }) => {
     setSelectedPhaseFilter,
     flowTracks,
     likedTracks,
-    isMockMode
+    isMockMode,
+    currentPhases,
+    flowIntent
   } = useWaveFlowStore();
+
+  const currentIntentConfig = COGNITIVE_INTENTS[flowIntent];
 
   return (
     <aside className="w-64 bg-black border-r border-zinc-800/80 flex flex-col justify-between flex-shrink-0 select-none z-30">
@@ -48,72 +49,73 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings }) => {
               </span>
             </h1>
             <p className="text-[10.5px] text-zinc-500 font-medium tracking-wide mt-0.5">
-              DJ Set & Energy Curve
+              Cognitive DJ Synthesis
             </p>
           </div>
         </div>
 
-        {/* Primary Navigation */}
-        <nav className="space-y-1">
-          <button
-            onClick={() => setActiveTab('home')}
-            className={`w-full flex items-center gap-3.5 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all duration-150 ${
-              activeTab === 'home'
-                ? 'bg-zinc-800/80 text-white'
-                : 'text-zinc-400 hover:text-white hover:bg-zinc-900/60'
-            }`}
-          >
-            <Home className={`w-5 h-5 ${activeTab === 'home' ? 'text-spotify' : ''}`} />
-            <span>Home</span>
-          </button>
-
+        {/* Primary Navigation Tabs */}
+        <nav className="space-y-1 mb-7">
           <button
             onClick={() => setActiveTab('generate')}
             className={`w-full flex items-center gap-3.5 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all duration-150 ${
               activeTab === 'generate'
-                ? 'bg-zinc-800/80 text-white'
+                ? 'bg-zinc-800 text-white shadow-sm'
                 : 'text-zinc-400 hover:text-white hover:bg-zinc-900/60'
             }`}
           >
-            <Sliders className={`w-5 h-5 ${activeTab === 'generate' ? 'text-spotify' : ''}`} />
-            <div className="flex items-center justify-between flex-1">
-              <span>Generate Flow</span>
-              {flowTracks.length > 0 && (
-                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-spotify/20 text-spotify border border-spotify/30">
-                  {flowTracks.length}
-                </span>
-              )}
-            </div>
+            <Sliders className={`w-4 h-4 ${activeTab === 'generate' ? 'text-spotify' : ''}`} />
+            <span>DJ Flow Studio</span>
           </button>
 
           <button
             onClick={() => setActiveTab('library')}
-            className={`w-full flex items-center gap-3.5 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all duration-150 ${
+            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-semibold transition-all duration-150 ${
               activeTab === 'library'
-                ? 'bg-zinc-800/80 text-white'
+                ? 'bg-zinc-800 text-white shadow-sm'
                 : 'text-zinc-400 hover:text-white hover:bg-zinc-900/60'
             }`}
           >
-            <Library className={`w-5 h-5 ${activeTab === 'library' ? 'text-spotify' : ''}`} />
-            <div className="flex items-center justify-between flex-1">
+            <span className="flex items-center gap-3.5">
+              <Library className={`w-4 h-4 ${activeTab === 'library' ? 'text-spotify' : ''}`} />
               <span>Liked Library</span>
-              {likedTracks.length > 0 && (
-                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-400">
-                  {likedTracks.length}
-                </span>
-              )}
-            </div>
+            </span>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 font-mono font-medium">
+              {likedTracks.length || 0}
+            </span>
           </button>
         </nav>
 
-        {/* Separator */}
-        <div className="my-5 border-t border-zinc-800/70" />
+        {/* Active Intent Arc Card */}
+        <div className="mb-6 p-3 rounded-xl bg-zinc-950 border border-zinc-800/80">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] uppercase font-bold tracking-wider text-zinc-400">
+              Active Intent
+            </span>
+            <span
+              className="text-[9.5px] font-bold px-2 py-0.2 rounded-full border"
+              style={{
+                color: currentIntentConfig.color,
+                borderColor: `${currentIntentConfig.color}40`,
+                backgroundColor: `${currentIntentConfig.color}15`
+              }}
+            >
+              {currentIntentConfig.badge}
+            </span>
+          </div>
+          <div className="text-xs font-bold text-white truncate">
+            {currentIntentConfig.name}
+          </div>
+          <p className="text-[10px] text-zinc-400 mt-1 line-clamp-2">
+            {currentIntentConfig.tagline}
+          </p>
+        </div>
 
-        {/* DJ Flow Phase Filter Navigation */}
+        {/* Dynamic Cognitive Phases List */}
         <div>
           <div className="flex items-center justify-between px-1 mb-2">
             <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500">
-              Flow Phases (50)
+              Flow Phases ({currentPhases.length})
             </span>
             {selectedPhaseFilter !== 'all' && (
               <button
@@ -136,14 +138,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings }) => {
             >
               <span className="flex items-center gap-2">
                 <Zap className="w-3.5 h-3.5 text-spotify" />
-                <span>All 6 Phases</span>
+                <span>All {currentPhases.length} Phases</span>
               </span>
               <span className="text-[10px] font-mono text-zinc-500">
-                {flowTracks.length || 50}
+                {flowTracks.length || 0}
               </span>
             </button>
 
-            {PHASE_CONFIGS.map((phase) => {
+            {currentPhases.map((phase) => {
               const isSelected = selectedPhaseFilter === phase.name;
               return (
                 <button
@@ -178,7 +180,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings }) => {
         {isMockMode && (
           <div className="mb-3 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center gap-2 text-[11px] text-amber-300">
             <Sparkles className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
-            <span className="truncate">Demo / Offline Mode</span>
+            <span className="truncate">Demo / Preview Mode</span>
           </div>
         )}
 
@@ -188,37 +190,37 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings }) => {
             {user?.images?.[0]?.url ? (
               <img
                 src={user.images[0].url}
-                alt=""
-                className="w-8 h-8 rounded-full object-cover border border-zinc-700"
+                alt={user.display_name}
+                className="w-8 h-8 rounded-full object-cover flex-shrink-0 border border-zinc-700"
               />
             ) : (
-              <div className="w-8 h-8 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-xs font-bold text-zinc-300">
+              <div className="w-8 h-8 rounded-full bg-zinc-800 text-spotify font-bold text-xs flex items-center justify-center flex-shrink-0">
                 {user?.display_name?.charAt(0) || 'U'}
               </div>
             )}
-            <div className="min-w-0">
-              <p className="text-xs font-semibold text-white truncate leading-tight">
-                {user?.display_name || 'Spotify User'}
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold text-zinc-200 truncate leading-none">
+                {user?.display_name || 'Spotify Guest'}
               </p>
-              <p className="text-[10px] text-zinc-500 truncate">
-                {isMockMode ? 'Interactive Guest' : 'Connected'}
+              <p className="text-[10px] text-zinc-500 truncate mt-1">
+                {user?.product === 'premium' ? 'Spotify Premium' : 'Free Account'}
               </p>
             </div>
           </div>
 
-          {/* Action buttons */}
+          {/* Action buttons: Settings & Logout */}
           <div className="flex items-center gap-1">
             <button
               onClick={onOpenSettings}
-              className="p-1.5 text-zinc-400 hover:text-white rounded-md hover:bg-zinc-800 transition-colors"
+              className="p-1.5 rounded-md text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
               title="Settings & API Keys"
             >
               <Settings className="w-4 h-4" />
             </button>
             <button
               onClick={logout}
-              className="p-1.5 text-zinc-400 hover:text-rose-400 rounded-md hover:bg-zinc-800 transition-colors"
-              title="Log Out"
+              className="p-1.5 rounded-md text-zinc-400 hover:text-rose-400 hover:bg-zinc-800 transition-colors"
+              title="Cerrar Sesión"
             >
               <LogOut className="w-4 h-4" />
             </button>

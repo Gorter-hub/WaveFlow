@@ -1,23 +1,23 @@
-import { GeminiEnergyScore, Track } from '../types';
+import {
+  GeminiEnergyScore,
+  Track,
+  CognitiveFlowIntentId,
+  CuratedSetResult
+} from '../types';
+import { COGNITIVE_INTENTS, generateCognitiveDJFlow } from '../algorithm/curveGenerator';
 
 /**
- * Cleanly strips markdown code fences (like ```json or ```) and any extraneous prose,
- * extracting only the valid JSON array string for JSON.parse()
+ * Cleanly strips markdown code fences (like ```json or ```) and any extraneous prose
  */
 export function stripMarkdownJson(raw: string): string {
-  if (!raw) return '[]';
+  if (!raw) return '{}';
 
   let cleaned = raw.trim();
-
-  // Strip leading code fences (e.g. ```json or ```)
   cleaned = cleaned.replace(/^```(?:json)?\s*/i, '');
-
-  // Strip trailing code fences
   cleaned = cleaned.replace(/\s*```$/i, '');
 
-  // Find the outer array bounds [ ... ]
-  const firstBracket = cleaned.indexOf('[');
-  const lastBracket = cleaned.lastIndexOf(']');
+  const firstBracket = cleaned.indexOf('{');
+  const lastBracket = cleaned.lastIndexOf('}');
 
   if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
     cleaned = cleaned.substring(firstBracket, lastBracket + 1);
@@ -27,12 +27,19 @@ export function stripMarkdownJson(raw: string): string {
 }
 
 /**
- * Safely parse Gemini JSON output
+ * Parses Gemini energy score array
  */
 export function parseGeminiScores(rawText: string): GeminiEnergyScore[] {
   try {
-    const stripped = stripMarkdownJson(rawText);
-    const parsed = JSON.parse(stripped);
+    let cleaned = rawText.trim();
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '');
+    cleaned = cleaned.replace(/\s*```$/i, '');
+    const firstArr = cleaned.indexOf('[');
+    const lastArr = cleaned.lastIndexOf(']');
+    if (firstArr !== -1 && lastArr !== -1) {
+      cleaned = cleaned.substring(firstArr, lastArr + 1);
+    }
+    const parsed = JSON.parse(cleaned);
     if (Array.isArray(parsed)) {
       return parsed.map((item) => ({
         id: String(item.id || ''),
@@ -43,7 +50,6 @@ export function parseGeminiScores(rawText: string): GeminiEnergyScore[] {
     return [];
   } catch (error) {
     console.warn('Failed to parse Gemini output cleanly. Attempting regex extraction...', error);
-    // Regex extraction fallback
     const scores: GeminiEnergyScore[] = [];
     const itemRegex = /\{\s*"id"\s*:\s*"([^"]+)"\s*,\s*"energy"\s*:\s*(\d+)\s*,\s*"valence"\s*:\s*(\d+)\s*\}/g;
     let match;
@@ -59,175 +65,208 @@ export function parseGeminiScores(rawText: string): GeminiEnergyScore[] {
 }
 
 /**
- * Call Gemini API to rate tracks
+ * Cognitive DJ Set Synthesis using Gemini AI
+ * Receives the enriched track pool and returns a structurally sound JSON CuratedSetResult
  */
-export async function analyzeTracksWithGemini(
-  tracks: Track[],
+export async function curateCognitiveFlowWithGemini(
+  pool: Track[],
+  intentId: CognitiveFlowIntentId,
   apiKey?: string,
-  onProgress?: (current: number, total: number) => void
-): Promise<Map<string, { energy: number; valence: number }>> {
+  onProgress?: (progress: number, message: string) => void
+): Promise<CuratedSetResult> {
   const effectiveKey = apiKey || import.meta.env.VITE_GEMINI_API_KEY || '';
-  const scoreMap = new Map<string, { energy: number; valence: number }>();
+  const intentConfig = COGNITIVE_INTENTS[intentId] || COGNITIVE_INTENTS.deep_focus;
 
-  // If key is empty or dummy placeholder, gracefully use simulation
+  if (onProgress) {
+    onProgress(25, `Analyzing ${pool.length} tracks against ${intentConfig.name} cognitive parameters...`);
+  }
+
+  // If no valid key or placeholder, run the local deterministic cognitive synthesis engine
   if (
     !effectiveKey ||
     effectiveKey.includes('tu_api_key') ||
     effectiveKey.includes('your_gemini') ||
     effectiveKey.length < 20
   ) {
-    console.warn('No valid Gemini API key provided. Using intelligent acoustic simulation.');
-    return simulateEnergyScoring(tracks, onProgress);
+    console.info('No Gemini API key detected. Running local cognitive synthesis engine.');
+    if (onProgress) {
+      onProgress(60, 'Synthesizing pacing arc, BPM lock, and duration packing...');
+      await new Promise((r) => setTimeout(r, 200));
+      onProgress(90, 'Applying valence continuity and anti-fatigue curves...');
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return generateCognitiveDJFlow(pool, intentId);
   }
 
-  // Split into manageable batches of 50 tracks to guarantee fast, deterministic responses
-  const BATCH_SIZE = 50;
-  const batches: Track[][] = [];
-  for (let i = 0; i < tracks.length; i += BATCH_SIZE) {
-    batches.push(tracks.slice(i, i + BATCH_SIZE));
-  }
+  try {
+    if (onProgress) {
+      onProgress(45, 'Submitting enriched track vectors to Gemini Cognitive Engine...');
+    }
 
-  let processedCount = 0;
+    // Send a sample/subset of top candidates to fit Gemini token budget cleanly (up to 80 diverse tracks)
+    const candidates = pool.slice(0, 80);
+    const trackSummaries = candidates.map((t) => ({
+      id: t.id,
+      title: t.name,
+      artist: t.artist,
+      duration_mins: Number(((t.duration_ms || 210000) / 60000).toFixed(1)),
+      energy: t.energy_score,
+      valence: t.valence_score,
+      bpm: t.bpm,
+      vocals: t.vocal_presence,
+      vibe: t.mood_vibe
+    }));
 
-  for (let bIndex = 0; bIndex < batches.length; bIndex++) {
-    const batch = batches[bIndex];
+    const systemPrompt = `You are a Lead Product Architect and Cognitive Music Director.
+Synthesize an intelligent neuroscience-backed DJ set from the provided track pool.
 
-    // Format list: "[id] Title - Artist"
-    const trackListString = batch
-      .map((t) => `ID: ${t.id} | ${t.name} - ${t.artist}`)
-      .join('\n');
+INTENT: "${intentConfig.name}" (${intentConfig.badge})
+NEUROSCIENCE SPEC: ${intentConfig.neuroscience_rationale}
+TARGET DURATION: ${intentConfig.duration_target_mins[0]} to ${intentConfig.duration_target_mins[1]} minutes.
+BPM TRANSITION WINDOW: Adjacent tracks must stay within ±${intentConfig.bpm_tolerance} BPM.
+${intentConfig.vocal_threshold_max ? `VOCAL LIMIT: Maximum vocal presence of ${intentConfig.vocal_threshold_max}% (instrumental priority).` : ''}
 
-    const prompt = `You are a world-class DJ and audio acoustics expert. Analyze the musical energy (0-100) and emotional valence (0-100) of these songs based on their tempo, percussion, distortion, loudness, and emotional vibe.
-Energy: 0 = extremely quiet/ambient/chill, 50 = steady mid-tempo groove, 80 = intense club banger, 100 = relentless peak festival anthem.
-Valence: 0 = melancholic/dark/sad, 100 = euphoric/uplifting/cheerful.
+PHASES TO CONSTRUCT:
+${intentConfig.phases
+  .map(
+    (p, i) =>
+      `${i + 1}. "${p.name}" (${Math.round(p.duration_ratio * 100)}% of set duration, target energy ${p.target_energy_range[0]}-${p.target_energy_range[1]}%): ${p.description}`
+  )
+  .join('\n')}
 
-Evaluate these songs:
-${trackListString}
+INSTRUCTIONS:
+1. Select tracks from the pool whose cumulative duration fits the target minutes (${intentConfig.duration_target_mins[0]}-${intentConfig.duration_target_mins[1]} mins). DO NOT use a fixed track count; pack by duration.
+2. Order tracks sequentially respecting safe adjacent BPM transitions and smooth emotional valence continuity.
+3. Return ONLY a valid JSON object matching this schema:
+{
+  "flow_intent": "${intentId}",
+  "curated_set": [
+    {
+      "id": "TRACK_ID_FROM_POOL",
+      "phase": "PHASE_NAME",
+      "transition_note": "Brief transition rationale (e.g. +2 BPM shift, smooth harmonic glide)"
+    }
+  ]
+}`;
 
-Respond ONLY with a raw JSON array of objects with the exact keys:
-[{"id": "...", "energy": 75, "valence": 60}]
-Do not include markdown fences, do not write explanations. Return ONLY the JSON array.`;
+    const userPrompt = `Track Pool:\n${JSON.stringify(trackSummaries, null, 2)}`;
 
-    try {
-      // Try gemini-1.5-flash with fallback
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${effectiveKey}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                role: 'user',
-                parts: [{ text: prompt }]
-              }
-            ],
-            generationConfig: {
-              temperature: 0.2,
-              responseMimeType: 'application/json'
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${effectiveKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }]
             }
-          })
-        }
-      );
-
-      if (!response.ok) {
-        const errText = await response.text();
-        console.warn(`Gemini API batch ${bIndex + 1} error: ${response.status}`, errText);
-        // Fallback simulate for this batch
-        fillBatchWithSimulation(batch, scoreMap);
-      } else {
-        const data = await response.json();
-        const candidate = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        const parsedScores = parseGeminiScores(candidate);
-
-        for (const item of parsedScores) {
-          scoreMap.set(item.id, { energy: item.energy, valence: item.valence });
-        }
-
-        // Fill any missing in this batch
-        for (const t of batch) {
-          if (!scoreMap.has(t.id)) {
-            const fallback = generateSingleSimulatedScore(t);
-            scoreMap.set(t.id, fallback);
+          ],
+          generationConfig: {
+            temperature: 0.25,
+            responseMimeType: 'application/json'
           }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      console.warn(`Gemini cognitive endpoint returned ${response.status}. Falling back to local engine.`);
+      return generateCognitiveDJFlow(pool, intentId);
+    }
+
+    const data = await response.json();
+    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const cleanedJson = stripMarkdownJson(rawText);
+    const parsed = JSON.parse(cleanedJson);
+
+    if (parsed && Array.isArray(parsed.curated_set) && parsed.curated_set.length >= 5) {
+      const trackMap = new Map<string, Track>();
+      for (const t of pool) trackMap.set(t.id, t);
+
+      const curatedSet: Track[] = [];
+      let currentIdx = 1;
+
+      for (let i = 0; i < parsed.curated_set.length; i++) {
+        const item = parsed.curated_set[i];
+        const originalTrack = trackMap.get(item.id);
+        if (originalTrack) {
+          curatedSet.push({
+            ...originalTrack,
+            phase: item.phase || intentConfig.phases[0].name,
+            phaseIndex: i + 1,
+            overallIndex: currentIdx++,
+            transition_note: item.transition_note || 'Harmonic lock'
+          });
         }
       }
-    } catch (err) {
-      console.error(`Gemini request failed for batch ${bIndex + 1}:`, err);
-      fillBatchWithSimulation(batch, scoreMap);
+
+      // Recompute phase breakdowns
+      const phases = intentConfig.phases.map((p) => {
+        const phaseTracks = curatedSet.filter((t) => t.phase === p.name);
+        const duration_ms = phaseTracks.reduce((acc, t) => acc + (t.duration_ms || 210000), 0);
+        return {
+          name: p.name,
+          description: p.description,
+          trackCount: phaseTracks.length,
+          duration_ms,
+          minEnergy: p.target_energy_range[0],
+          maxEnergy: p.target_energy_range[1],
+          color: p.color,
+          gradient: p.gradient,
+          rangeIndex: [1, phaseTracks.length] as [number, number]
+        };
+      });
+
+      const totalMs = curatedSet.reduce((acc, t) => acc + (t.duration_ms || 210000), 0);
+
+      if (onProgress) {
+        onProgress(100, `Synthesized ${curatedSet.length} tracks with Gemini AI.`);
+      }
+
+      return {
+        flow_intent: intentId,
+        computed_total_duration_ms: totalMs,
+        computed_total_tracks: curatedSet.length,
+        phases,
+        curated_set: curatedSet
+      };
     }
 
-    processedCount += batch.length;
-    if (onProgress) {
-      onProgress(processedCount, tracks.length);
-    }
+    // Fallback if parsed json didn't have adequate curated_set
+    return generateCognitiveDJFlow(pool, intentId);
+  } catch (error) {
+    console.error('Gemini synthesis failed, using local engine:', error);
+    return generateCognitiveDJFlow(pool, intentId);
   }
-
-  return scoreMap;
 }
 
 /**
- * Realistic acoustic energy simulation used when no API key is present or for instant preview
+ * Legacy compatibility: analyze tracks with Gemini for energy and valence
  */
+export async function analyzeTracksWithGemini(
+  tracks: Track[],
+  apiKey?: string,
+  onProgress?: (current: number, total: number) => void
+): Promise<Map<string, { energy: number; valence: number }>> {
+  const map = new Map<string, { energy: number; valence: number }>();
+  for (let i = 0; i < tracks.length; i++) {
+    const t = tracks[i];
+    map.set(t.id, {
+      energy: t.energy_score ?? t.energy ?? 50,
+      valence: t.valence_score ?? t.valence ?? 50
+    });
+    if (onProgress && (i % 25 === 0 || i === tracks.length - 1)) {
+      onProgress(i + 1, tracks.length);
+    }
+  }
+  return map;
+}
+
 export async function simulateEnergyScoring(
   tracks: Track[],
   onProgress?: (current: number, total: number) => void
 ): Promise<Map<string, { energy: number; valence: number }>> {
-  const map = new Map<string, { energy: number; valence: number }>();
-  const total = tracks.length;
-
-  for (let i = 0; i < total; i++) {
-    const t = tracks[i];
-    map.set(t.id, generateSingleSimulatedScore(t));
-
-    if (i % 25 === 0 || i === total - 1) {
-      if (onProgress) {
-        onProgress(i + 1, total);
-      }
-      await new Promise((r) => setTimeout(r, 60)); // smooth visual simulation
-    }
-  }
-
-  return map;
-}
-
-function fillBatchWithSimulation(batch: Track[], map: Map<string, { energy: number; valence: number }>) {
-  for (const t of batch) {
-    if (!map.has(t.id)) {
-      map.set(t.id, generateSingleSimulatedScore(t));
-    }
-  }
-}
-
-function generateSingleSimulatedScore(track: Track): { energy: number; valence: number } {
-  // Hash track id + title to produce deterministic, realistic spread across 25-98
-  let hash = 0;
-  const str = `${track.id}-${track.name}-${track.artist}`;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash << 5) - hash + str.charCodeAt(i);
-    hash |= 0;
-  }
-  const normalized = Math.abs(hash) % 1000 / 1000; // 0.000 to 0.999
-  
-  // Create natural bimodal DJ distribution
-  let energy: number;
-  if (normalized < 0.25) {
-    // Warm-up / Chill (35 - 58)
-    energy = Math.round(35 + (normalized / 0.25) * 23);
-  } else if (normalized < 0.60) {
-    // Build-up / Driving (61 - 80)
-    energy = Math.round(61 + ((normalized - 0.25) / 0.35) * 19);
-  } else if (normalized < 0.85) {
-    // Peak / High (81 - 92)
-    energy = Math.round(81 + ((normalized - 0.60) / 0.25) * 11);
-  } else {
-    // Climax (92 - 99)
-    energy = Math.round(92 + ((normalized - 0.85) / 0.15) * 7);
-  }
-
-  const valence = Math.round(30 + ((Math.abs(hash * 31) % 100) * 0.65));
-
-  return { energy, valence };
+  return analyzeTracksWithGemini(tracks, undefined, onProgress);
 }

@@ -1,3 +1,31 @@
+import { create } from 'zustand';
+import {
+  FlowPhaseName,
+  CognitiveFlowIntentId,
+  FlowPhaseConfig,
+  CuratedSetResult,
+  GenerationStatus,
+  SpotifyAuthTokens,
+  Track,
+  UserProfile
+} from '../types';
+import {
+  clearStoredTokens,
+  exchangeCodeForTokens,
+  exportToSpotifyPlaylist,
+  fetchUserLikedSongs,
+  getStoredTokens,
+  getUserProfile,
+  redirectToSpotifyLogin
+} from '../api/spotify';
+import { curateCognitiveFlowWithGemini } from '../api/gemini';
+import {
+  COGNITIVE_INTENTS,
+  generateCognitiveDJFlow,
+  PHASE_CONFIGS
+} from '../algorithm/curveGenerator';
+import { generateMockLikedTracks } from '../api/mockData';
+import confetti from 'canvas-confetti';
 
 function saveCachedTracks(tracks: Track[]) {
   try {
@@ -11,8 +39,14 @@ function saveCachedTracks(tracks: Track[]) {
       duration_ms: t.duration_ms,
       uri: t.uri,
       preview_url: t.preview_url,
-      energy: t.energy,
-      valence: t.valence
+      energy_score: t.energy_score,
+      valence_score: t.valence_score,
+      bpm: t.bpm,
+      vocal_presence: t.vocal_presence,
+      mood_vibe: t.mood_vibe,
+      genre_vibe: t.genre_vibe,
+      energy: t.energy_score ?? t.energy,
+      valence: t.valence_score ?? t.valence
     }));
     localStorage.setItem('waveflow_cached_liked_songs', JSON.stringify(compact));
   } catch (e) {
@@ -29,29 +63,6 @@ function getCachedTracks(): Track[] {
     return [];
   }
 }
-
-import { create } from 'zustand';
-import {
-  FlowPhaseName,
-  FlowStyleId,
-  GenerationStatus,
-  SpotifyAuthTokens,
-  Track,
-  UserProfile
-} from '../types';
-import {
-  clearStoredTokens,
-  exchangeCodeForTokens,
-  exportToSpotifyPlaylist,
-  fetchUserLikedSongs,
-  getStoredTokens,
-  getUserProfile,
-  redirectToSpotifyLogin
-} from '../api/spotify';
-import { analyzeTracksWithGemini } from '../api/gemini';
-import { generateDJCurve } from '../algorithm/curveGenerator';
-import { generateMockLikedTracks } from '../api/mockData';
-import confetti from 'canvas-confetti';
 
 interface WaveFlowStore {
   // Config & Credentials
@@ -70,9 +81,11 @@ interface WaveFlowStore {
   likedTracks: Track[];
   flowTracks: Track[];
   activeTrack: Track | null;
-  selectedPhaseFilter: FlowPhaseName | 'all';
+  selectedPhaseFilter: string | 'all';
+  flowIntent: CognitiveFlowIntentId;
   targetTrackCount: number;
-  flowStyle: FlowStyleId;
+  flowResult: CuratedSetResult | null;
+  currentPhases: FlowPhaseConfig[];
   activeTab: 'home' | 'generate' | 'library';
 
   // Generation & Export State
@@ -89,9 +102,9 @@ interface WaveFlowStore {
   setCredentials: (clientId: string, geminiKey: string) => void;
   setActiveTab: (tab: 'home' | 'generate' | 'library') => void;
   setActiveTrack: (track: Track | null) => void;
-  setSelectedPhaseFilter: (phase: FlowPhaseName | 'all') => void;
+  setSelectedPhaseFilter: (phase: string | 'all') => void;
+  setFlowIntent: (intent: CognitiveFlowIntentId) => void;
   setTargetTrackCount: (count: number) => void;
-  setFlowStyle: (style: FlowStyleId) => void;
   clearError: () => void;
   syncLibrary: () => Promise<void>;
 
@@ -104,7 +117,7 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
   spotifyClientId:
     localStorage.getItem('waveflow_spotify_client_id') ||
     import.meta.env.VITE_SPOTIFY_CLIENT_ID ||
-    '',
+    'eff8d23bb9144906a6c6c014188e1c24',
   geminiApiKey:
     localStorage.getItem('waveflow_gemini_api_key') ||
     import.meta.env.VITE_GEMINI_API_KEY ||
@@ -121,13 +134,15 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
   flowTracks: [],
   activeTrack: null,
   selectedPhaseFilter: 'all',
-  targetTrackCount: 50,
-  flowStyle: 'classic',
+  flowIntent: 'deep_focus',
+  targetTrackCount: 22,
+  flowResult: null,
+  currentPhases: PHASE_CONFIGS,
   activeTab: 'generate',
 
   status: {
     step: 'idle',
-    message: 'Ready to generate your personal DJ flow',
+    message: 'WaveFlow Cognitive DJ ready. Select an intent to synthesize your set.',
     progress: 0
   },
   errorMessage: null,
@@ -135,15 +150,30 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
 
   init: async () => {
     set({ isAuthLoading: true });
-    // Restore cached library immediately
-    const cached = getCachedTracks();
-    if (cached.length > 0) {
-      set({ likedTracks: cached });
-    }
     try {
       const stored = getStoredTokens();
-      if (stored && stored.accessToken) {
-        if (Date.now() < stored.expiresAt) {
+      const cached = getCachedTracks();
+
+      // Load cached tracks immediately if present
+      if (cached.length > 0) {
+        const initialFlow = generateCognitiveDJFlow(cached, 'deep_focus');
+        set({
+          likedTracks: cached,
+          flowTracks: initialFlow.curated_set,
+          flowResult: initialFlow,
+          currentPhases: initialFlow.phases,
+          targetTrackCount: initialFlow.computed_total_tracks,
+          activeTrack: initialFlow.curated_set[0] || null,
+          status: {
+            step: 'ready',
+            message: `Loaded ${cached.length} cached tracks. Set ready: ${initialFlow.computed_total_tracks} tracks (${Math.round(initialFlow.computed_total_duration_ms / 60000)}m).`,
+            progress: 100
+          }
+        });
+      }
+
+      if (stored) {
+        if (stored.expiresAt && stored.expiresAt > Date.now()) {
           try {
             const profile = await getUserProfile(stored.accessToken);
             set({
@@ -152,7 +182,8 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
               isAuthenticated: true,
               isMockMode: false
             });
-            // If library was never cached, trigger sync
+
+            // If library was never cached, trigger background sync
             if (cached.length === 0) {
               get().syncLibrary();
             }
@@ -174,7 +205,8 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
   setMockMode: (enabled: boolean) => {
     if (enabled) {
       const mockTracks = generateMockLikedTracks();
-      const initialFlow = generateDJCurve(mockTracks, get().targetTrackCount, get().flowStyle);
+      const initialFlow = generateCognitiveDJFlow(mockTracks, get().flowIntent);
+      saveCachedTracks(mockTracks);
       set({
         isMockMode: true,
         isAuthenticated: true,
@@ -189,12 +221,15 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
           ]
         },
         likedTracks: mockTracks,
-        flowTracks: initialFlow,
-        activeTrack: initialFlow[0] || null,
+        flowTracks: initialFlow.curated_set,
+        flowResult: initialFlow,
+        currentPhases: initialFlow.phases,
+        targetTrackCount: initialFlow.computed_total_tracks,
+        activeTrack: initialFlow.curated_set[0] || null,
         errorMessage: null,
         status: {
           step: 'ready',
-          message: 'WaveFlow DJ set ready! 50 tracks curated across 6 dynamic phases.',
+          message: `WaveFlow Demo Set ready: ${initialFlow.computed_total_tracks} tracks curated for ${COGNITIVE_INTENTS[get().flowIntent].name}.`,
           progress: 100
         }
       });
@@ -219,9 +254,31 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
   setActiveTrack: (track) => set({ activeTrack: track }),
   setSelectedPhaseFilter: (phase) => set({ selectedPhaseFilter: phase }),
   setTargetTrackCount: (count) => set({ targetTrackCount: count }),
-  setFlowStyle: (style) => set({ flowStyle: style }),
+
+  setFlowIntent: (intent: CognitiveFlowIntentId) => {
+    set({ flowIntent: intent, selectedPhaseFilter: 'all' });
+    const { likedTracks } = get();
+    // If tracks are already loaded, immediately preview the new cognitive arc
+    if (likedTracks.length > 0) {
+      const preview = generateCognitiveDJFlow(likedTracks, intent);
+      set({
+        flowTracks: preview.curated_set,
+        flowResult: preview,
+        currentPhases: preview.phases,
+        targetTrackCount: preview.computed_total_tracks,
+        activeTrack: preview.curated_set[0] || null,
+        status: {
+          step: 'ready',
+          message: `${COGNITIVE_INTENTS[intent].name} arc generated: ${preview.computed_total_tracks} tracks (${Math.round(preview.computed_total_duration_ms / 60000)} mins).`,
+          progress: 100
+        }
+      });
+    }
+  },
+
   clearError: () => set({ errorMessage: null }),
-syncLibrary: async () => {
+
+  syncLibrary: async () => {
     const { tokens, isMockMode } = get();
     set({
       isSyncingLibrary: true,
@@ -259,7 +316,7 @@ syncLibrary: async () => {
         isSyncingLibrary: false,
         status: {
           step: 'idle',
-          message: `Biblioteca sincronizada: ${tracks.length} canciones listas.`,
+          message: `Biblioteca sincronizada: ${tracks.length} canciones guardadas persistentemente.`,
           progress: 100
         }
       });
@@ -327,6 +384,7 @@ syncLibrary: async () => {
       isMockMode: false,
       likedTracks: [],
       flowTracks: [],
+      flowResult: null,
       activeTrack: null,
       status: {
         step: 'idle',
@@ -338,201 +396,198 @@ syncLibrary: async () => {
   },
 
   generateFlow: async () => {
-    const { isMockMode, tokens, geminiApiKey } = get();
+    const { isMockMode, tokens, geminiApiKey, flowIntent } = get();
 
     set({
       status: {
         step: 'fetching',
-        message: 'Fetching all Liked Songs from your Spotify library...',
+        message: 'Checking persistent track library...',
         progress: 10
       },
       errorMessage: null,
       exportedPlaylist: null
     });
 
-    let rawTracks: Track[] = [];
+    let rawTracks: Track[] = get().likedTracks;
 
     try {
-      // Step 1: Fetch tracks
-      if (isMockMode || !tokens?.accessToken) {
-        // Mock mode fetch with smooth simulation
-        await new Promise((r) => setTimeout(r, 600));
-        rawTracks = generateMockLikedTracks();
-        set((state) => ({
-          likedTracks: rawTracks,
-          status: {
-            step: 'fetching',
-            message: `Loaded ${rawTracks.length} personal liked tracks`,
-            progress: 35
-          }
-        }));
-      } else {
-        // Spotify API fetch (200 tracks)
-        rawTracks = await fetchUserLikedSongs(
-          tokens.accessToken,
-          undefined,
-          (fetched, total) => {
-            set((state) => ({
-              status: {
-                step: 'fetching',
-                message: `Retrieving liked songs (${fetched}/${total})...`,
-                progress: 10 + Math.round((fetched / Math.max(1, total)) * 25)
-              }
-            }));
-          }
-        );
-        set({ likedTracks: rawTracks });
+      // Step 1: Ingest tracks if not in state
+      if (!rawTracks || rawTracks.length === 0) {
+        const cached = getCachedTracks();
+        if (cached.length > 0) {
+          rawTracks = cached;
+          set({ likedTracks: rawTracks });
+        } else if (isMockMode || !tokens?.accessToken) {
+          await new Promise((r) => setTimeout(r, 400));
+          rawTracks = generateMockLikedTracks();
+          saveCachedTracks(rawTracks);
+          set({ likedTracks: rawTracks });
+        } else {
+          rawTracks = await fetchUserLikedSongs(
+            tokens.accessToken,
+            undefined,
+            (fetched, total) => {
+              set({
+                status: {
+                  step: 'fetching',
+                  message: `Descargando canciones de biblioteca (${fetched}/${total})...`,
+                  progress: 10 + Math.round((fetched / Math.max(1, total)) * 25)
+                }
+              });
+            }
+          );
+          saveCachedTracks(rawTracks);
+          set({ likedTracks: rawTracks });
+        }
       }
 
       if (rawTracks.length === 0) {
         throw new Error('No liked songs found in your library. Like some songs on Spotify first!');
       }
 
-      // Step 2: AI Energy & Valence Rating via Gemini API
+      // Step 2: Cognitive DJ Set Synthesis via Gemini AI
       set({
         status: {
           step: 'analyzing',
-          message: 'Passing tracks to Gemini AI for acoustic energy scoring...',
-          progress: 40
+          message: `Calibrating ${COGNITIVE_INTENTS[flowIntent].name} neuroscience curve...`,
+          progress: 35
         }
       });
 
-      const scoreMap = await analyzeTracksWithGemini(
+      const result = await curateCognitiveFlowWithGemini(
         rawTracks,
+        flowIntent,
         geminiApiKey,
-        (current, total) => {
-          const pct = 40 + Math.round((current / total) * 35);
+        (progress, message) => {
           set({
             status: {
               step: 'analyzing',
-              message: `Gemini AI analyzing energy & mood dynamics (${current}/${total})...`,
-              progress: pct
+              message,
+              progress
             }
           });
         }
       );
 
-      // Merge scores into tracks
-      const scoredTracks: Track[] = rawTracks.map((t) => {
-        const score = scoreMap.get(t.id);
-        return {
-          ...t,
-          energy: score?.energy ?? 50,
-          valence: score?.valence ?? 50
-        };
-      });
-
-      // Step 3: Run DJ Set Curve Algorithm (6 Phases, 50 tracks)
+      // Step 3: Set State and Celebrate
       set({
-        status: {
-          step: 'sorting',
-          message: 'Synthesizing 6-phase DJ set curve: Warm-up → Build → Peak → Valley → Climax → Outro',
-          progress: 85
-        }
-      });
-
-      await new Promise((r) => setTimeout(r, 400));
-      const { targetTrackCount, flowStyle } = get();
-      const orderedFlow = generateDJCurve(scoredTracks, targetTrackCount, flowStyle);
-
-      set({
-        flowTracks: orderedFlow,
-        activeTrack: orderedFlow[0] || null,
+        flowTracks: result.curated_set,
+        flowResult: result,
+        currentPhases: result.phases,
+        targetTrackCount: result.computed_total_tracks,
+        activeTrack: result.curated_set[0] || null,
+        selectedPhaseFilter: 'all',
         status: {
           step: 'ready',
-          message: `WaveFlow DJ set ready! 50 tracks curated across 6 dynamic phases.`,
+          message: `WaveFlow ${COGNITIVE_INTENTS[flowIntent].name} synthesized! ${result.computed_total_tracks} tracks (${Math.round(result.computed_total_duration_ms / 60000)} mins).`,
           progress: 100
         }
       });
+
+      try {
+        confetti({
+          particleCount: 65,
+          spread: 70,
+          origin: { y: 0.65 }
+        });
+      } catch (e) {
+        // Confetti optional
+      }
     } catch (err: any) {
       console.error('Flow generation error:', err);
       set({
         status: {
           step: 'error',
-          message: err?.message || 'Error generating flow',
+          message: err?.message || 'Error al generar el DJ set',
           progress: 0
         },
-        errorMessage: err?.message || 'An error occurred during flow generation'
+        errorMessage: err?.message || 'Error al generar el DJ set'
       });
     }
   },
 
   exportToSpotify: async () => {
-    const { flowTracks, isMockMode, tokens, user } = get();
+    const { tokens, flowTracks, isMockMode, flowIntent, flowResult } = get();
 
     if (flowTracks.length === 0) {
-      set({ errorMessage: 'No flow tracks available. Generate a flow first!' });
+      set({ errorMessage: 'No hay canciones para exportar. Genera un set primero.' });
       return;
     }
+
+    const intentConfig = COGNITIVE_INTENTS[flowIntent];
+    const durationMins = Math.round((flowResult?.computed_total_duration_ms || 3600000) / 60000);
 
     set({
       status: {
         step: 'exporting',
-        message: 'Creating private playlist & injecting 50 ordered tracks into Spotify...',
-        progress: 50
+        message: 'Creando playlist y ordenando canciones en Spotify...',
+        progress: 20
       },
       errorMessage: null
     });
 
     try {
       if (isMockMode || !tokens?.accessToken) {
-        // Simulated export
         await new Promise((r) => setTimeout(r, 1200));
-        const mockResult = {
-          id: `mock-playlist-${Date.now()}`,
+        const mockExport = {
+          id: 'mock-exported-playlist-id',
           url: 'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M',
-          name: `WaveFlow DJ Set — ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+          name: `WaveFlow — ${intentConfig.name}`
         };
-
         set({
-          exportedPlaylist: mockResult,
+          exportedPlaylist: mockExport,
           status: {
             step: 'exported',
-            message: 'Playlist exported successfully to Spotify!',
+            message: `¡Playlist "${mockExport.name}" exportada con éxito! (${flowTracks.length} canciones)`,
             progress: 100
           }
         });
+        return;
+      }
 
-        // Trigger celebratory confetti
+      const dateStr = new Date().toLocaleDateString('es-ES', {
+        month: 'short',
+        day: 'numeric'
+      });
+
+      const playlistTitle = `WaveFlow: ${intentConfig.name} (${durationMins}m)`;
+      const description = `${intentConfig.tagline}. Calibrado por WaveFlow AI con arquitectura de transición de BPM y valencia.`;
+
+      const result = await exportToSpotifyPlaylist(
+        tokens.accessToken,
+        get().user?.id || 'me',
+        flowTracks,
+        playlistTitle,
+        description
+      );
+
+      set({
+        exportedPlaylist: result,
+        status: {
+          step: 'exported',
+          message: `¡Set exportado a Spotify! "${result.name}"`,
+          progress: 100
+        }
+      });
+
+      try {
         confetti({
           particleCount: 100,
-          spread: 70,
-          origin: { y: 0.8 },
-          colors: ['#1DB954', '#1ed760', '#ffffff', '#38bdf8', '#f43f5e']
-        });
-      } else {
-        const result = await exportToSpotifyPlaylist(
-          tokens.accessToken,
-          user?.id || 'me',
-          flowTracks
-        );
-
-        set({
-          exportedPlaylist: result,
-          status: {
-            step: 'exported',
-            message: `Created "${result.name}" with 50 tracks in your Spotify library!`,
-            progress: 100
-          }
-        });
-
-        // Trigger celebratory confetti
-        confetti({
-          particleCount: 120,
           spread: 80,
-          origin: { y: 0.8 },
-          colors: ['#1DB954', '#1ed760', '#ffffff', '#38bdf8', '#f43f5e']
+          origin: { y: 0.6 }
         });
+      } catch (e) {
+        // Confetti optional
       }
     } catch (err: any) {
-      console.error('Export failed:', err);
+      console.error('Export error:', err);
       set({
         status: {
           step: 'error',
-          message: err?.message || 'Export failed',
+          message: err?.message || 'Error al exportar playlist a Spotify',
           progress: 0
         },
-        errorMessage: err?.message || 'Failed to export playlist to Spotify'
+        errorMessage: err?.message || 'Error al exportar playlist a Spotify'
       });
     }
   }
