@@ -6,40 +6,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>WaveFlow — Cognitive DJ Set & Energy Curve Synthesis</title>
     <meta name="description" content="Synthesizes your liked tracks into an intelligent, neuroscience-backed DJ set curve using AI" />
-    <style>
-      /* Hide Netlify free tier floating badges from covering action buttons */
-      [class*="netlify"],
-      [id*="netlify"],
-      div[style*="z-index: 1000000"],
-      div[style*="z-index: 2147483647"],
-      div:has(> a[href*="netlify"]),
-      a[href*="netlify"] {
-        display: none !important;
-        opacity: 0 !important;
-        pointer-events: none !important;
-        visibility: hidden !important;
-        bottom: 9999px !important;
-      }
-    </style>
-    <script>
-      // Extra safety: Move or remove any element containing "Powered by Netlify"
-      const cleanBadges = () => {
-        try {
-          const elements = document.querySelectorAll('*');
-          for (let i = 0; i < elements.length; i++) {
-            const el = elements[i];
-            if (el && el.innerText && el.innerText.includes('Powered by Netlify')) {
-              el.style.display = 'none';
-              el.style.visibility = 'hidden';
-              el.style.opacity = '0';
-              el.remove();
-            }
-          }
-        } catch (e) {}
-      };
-      window.addEventListener('DOMContentLoaded', cleanBadges);
-      setInterval(cleanBadges, 1000);
-    </script>
   </head>
   <body class="bg-black text-white font-sans antialiased overflow-hidden select-none">
     <div id="root"></div>
