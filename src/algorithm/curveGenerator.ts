@@ -11,6 +11,36 @@ import {
   VocalPresenceOption
 } from '../types';
 import { evaluateTrackTransition, TransitionContext } from './transitionScorer';
+import { hashString } from './acousticAnalyzer';
+
+/**
+ * Checks whether a track matches any of the specified genre tags
+ */
+export function trackMatchesGenres(track: Track, genres: string[]): boolean {
+  if (!genres || genres.length === 0) return true;
+  const list = genres.map((g) => g.toLowerCase().trim()).filter(Boolean);
+  if (
+    list.length === 0 ||
+    list.includes('all') ||
+    list.includes('all genres') ||
+    list.includes('surprise me')
+  ) {
+    return true;
+  }
+  const trackGenre = (track.genre_vibe || '').toLowerCase();
+  const trackMood = (track.mood_vibe || '').toLowerCase();
+  const trackName = (track.name || '').toLowerCase();
+  const trackArtist = (track.artist || '').toLowerCase();
+
+  return list.some((target) => {
+    return (
+      trackGenre.includes(target) ||
+      trackMood.includes(target) ||
+      trackName.includes(target) ||
+      trackArtist.includes(target)
+    );
+  });
+}
 
 /**
  * 12 Evidence-Informed Listening Intentions
@@ -943,41 +973,54 @@ export function generateCognitiveDJFlow(
 
   // 2. INTENSITY ADJUSTMENT
   let intensityOffset = 0;
-  if (mergedControls.intensity === 'calm') intensityOffset = -8;
-  if (mergedControls.intensity === 'intense' || mergedControls.intensity === 'energetic') intensityOffset = 8;
+  if (mergedControls.intensity === 'calm') intensityOffset = -15;
+  if (mergedControls.intensity === 'intense' || mergedControls.intensity === 'energetic') intensityOffset = 15;
 
   const normalizedPool = availableTracks.map(normalizeTrack);
 
-  // 3. VOCAL FILTERING
+  // 3. GENRE SELECTION & FILTERING
+  const selectedGenres =
+    mergedControls.selectedGenres && mergedControls.selectedGenres.length > 0
+      ? mergedControls.selectedGenres
+      : (mergedControls.genrePreference && mergedControls.genrePreference !== 'all' ? [mergedControls.genrePreference] : []);
+
+  const genreMode = mergedControls.genreMode || (selectedGenres.length > 0 ? 'prefer' : 'surprise');
+
+  let candidatePool = normalizedPool;
+  let strictWarning: string | undefined;
+
+  if (genreMode === 'strict' && selectedGenres.length > 0) {
+    const strictPool = normalizedPool.filter((t) => trackMatchesGenres(t, selectedGenres));
+    if (strictPool.length === 0) {
+      strictWarning = `No tracks in your library match the selected genres (${selectedGenres.join(', ')}). Consider switching to "Prefer These Genres" or adding more genres.`;
+      return {
+        flow_intent: intentId,
+        computed_total_duration_ms: 0,
+        computed_total_tracks: 0,
+        phases: [],
+        curated_set: [],
+        applied_controls: mergedControls,
+        strictWarning
+      };
+    }
+    candidatePool = strictPool;
+  }
+
+  // 4. VOCAL FILTERING
   const isInstrumentalPriority =
     mergedControls.vocals === 'instrumental' ||
     (Boolean(intent.vocal_threshold_max) && mergedControls.vocals !== 'welcome');
 
-  let candidatePool = normalizedPool;
   if (isInstrumentalPriority) {
-    const threshold = intent.vocal_threshold_max || 30;
-    const instrumentalCandidates = normalizedPool.filter((t) => t.vocal_presence <= threshold);
-    if (instrumentalCandidates.length >= 15) {
+    const threshold = intent.vocal_threshold_max || 25;
+    const instrumentalCandidates = candidatePool.filter((t) => t.vocal_presence <= threshold);
+    if (instrumentalCandidates.length >= 8) {
       candidatePool = instrumentalCandidates;
     } else {
-      // Relax threshold if library is small to avoid exhausting pool
-      const relaxed = normalizedPool.filter((t) => t.vocal_presence <= threshold + 25);
-      if (relaxed.length >= 15) {
+      const relaxed = candidatePool.filter((t) => t.vocal_presence <= threshold + 25);
+      if (relaxed.length >= 8) {
         candidatePool = relaxed;
       }
-    }
-  }
-
-  // 4. GENRE PREFERENCE FILTERING (if applicable)
-  if (mergedControls.genrePreference && mergedControls.genrePreference !== 'all') {
-    const genreFilter = mergedControls.genrePreference.toLowerCase();
-    const matchingGenre = candidatePool.filter(
-      (t) =>
-        (t.mood_vibe && t.mood_vibe.toLowerCase().includes(genreFilter)) ||
-        (t.genre_vibe && t.genre_vibe.toLowerCase().includes(genreFilter))
-    );
-    if (matchingGenre.length >= 12) {
-      candidatePool = matchingGenre;
     }
   }
 
@@ -992,12 +1035,13 @@ export function generateCognitiveDJFlow(
     allowHalfDoubleTime: true
   };
 
-  // 5. SELECT OPENER TRACK
+  // 5. SELECT OPENER TRACK WITH SEED DIVERSITY
+  const seed = mergedControls.seed || 0;
   const openerTrajectory = getTargetTrajectoryPoint(intent, 0.0, intensityOffset, mergedControls);
   const openerCandidates = candidatePool.filter(
     (t) =>
-      Math.abs(t.energy_score - openerTrajectory.targetEnergy) <= 18 &&
-      Math.abs(t.valence_score - openerTrajectory.targetValence) <= 30
+      Math.abs(t.energy_score - openerTrajectory.targetEnergy) <= 22 &&
+      Math.abs(t.valence_score - openerTrajectory.targetValence) <= 35
   );
 
   const initialPickList = openerCandidates.length > 0 ? openerCandidates : candidatePool;
@@ -1007,7 +1051,8 @@ export function generateCognitiveDJFlow(
       Math.abs(b.energy_score - openerTrajectory.targetEnergy)
   );
 
-  const opener = sortedOpeners[0];
+  const openerIndex = seed ? (Math.abs(seed) % Math.min(sortedOpeners.length, 5)) : 0;
+  const opener = sortedOpeners[openerIndex] || sortedOpeners[0];
   usedTrackIds.add(opener.id);
   recentArtists.push(opener.artist.toLowerCase());
   accumulatedMs += opener.duration_ms || 210000;
@@ -1024,9 +1069,7 @@ export function generateCognitiveDJFlow(
   let currentAnchor = opener;
   let trackIndex = 2;
 
-  // We loop strictly until accumulated duration meets target duration
-  // Tolerance is scaled: for sets <= 45m, one track is ~10% of total duration so we use 0.88 threshold;
-  // for sets > 45m we use 0.94 threshold.
+  // Scaled duration threshold
   const minRequiredMs =
     targetDurationMins <= 45 ? targetDurationMs * 0.88 : targetDurationMs * 0.93;
 
@@ -1035,7 +1078,6 @@ export function generateCognitiveDJFlow(
     (accumulatedMs < targetDurationMs && targetDurationMs - accumulatedMs > 60000)
   ) {
     if (usedTrackIds.size >= normalizedPool.length) {
-      // Entire library consumed
       break;
     }
 
@@ -1049,16 +1091,37 @@ export function generateCognitiveDJFlow(
       recentArtists: recentArtists.slice(-4)
     };
 
-    // Filter available candidates from candidatePool, fallback to normalizedPool if running tight
+    // Filter available candidates from candidatePool
     let available = candidatePool.filter((t) => !usedTrackIds.has(t.id));
-    if (available.length < 3) {
+    if (available.length === 0) {
+      if (genreMode === 'strict') {
+        // Under strict mode, NEVER fall back to unrelated genres
+        strictWarning = `Your library contained ${curatedSet.length} tracks (${Math.round(accumulatedMs / 60000)} mins) strictly matching "${selectedGenres.join(', ')}". All eligible tracks were curated.`;
+        break;
+      }
+      // Non-strict fallback to normalizedPool if candidatePool exhausted
       available = normalizedPool.filter((t) => !usedTrackIds.has(t.id));
+      if (available.length === 0) break;
     }
-    if (available.length === 0) break;
 
     let bestCandidate: Track | null = null;
     let highestScore = -Infinity;
     let bestEval = openerEval;
+
+    // Transition style weights
+    let transWeight = 0.45;
+    let trajWeight = 0.35;
+    let intentWeight = 0.20;
+
+    if (mergedControls.transitionStyle === 'smooth' || mergedControls.transitionStyle === 'seamless') {
+      transWeight = 0.60;
+      trajWeight = 0.25;
+      intentWeight = 0.15;
+    } else if (mergedControls.transitionStyle === 'dynamic' || mergedControls.transitionStyle === 'adventurous') {
+      transWeight = 0.25;
+      trajWeight = 0.50;
+      intentWeight = 0.25;
+    }
 
     // Beam evaluation
     for (let i = 0; i < available.length; i++) {
@@ -1069,7 +1132,7 @@ export function generateCognitiveDJFlow(
 
       // 2. Global Trajectory Alignment (0 to 100)
       const energyDelta = Math.abs(candidate.energy_score - trajectory.targetEnergy);
-      const trajectoryScore = Math.max(0, 100 - energyDelta * 2.2);
+      const trajectoryScore = Math.max(0, 100 - energyDelta * 2.5);
 
       // 3. Intent Fit Score (0 to 100)
       let intentFitScore = 100;
@@ -1079,27 +1142,70 @@ export function generateCognitiveDJFlow(
         intentFitScore -= 30;
       }
 
-      // 4. Vocal Penalty
-      if (isInstrumentalPriority && candidate.vocal_presence > (intent.vocal_threshold_max || 30)) {
-        intentFitScore -= (candidate.vocal_presence - (intent.vocal_threshold_max || 30)) * 1.2;
-      }
-
-      // 5. Duration Proximity Optimization near target finish
-      let durationBonus = 0;
-      const remainingMs = targetDurationMs - accumulatedMs;
-      if (remainingMs <= 300000) { // last 5 minutes
-        const diffFromRemaining = Math.abs((candidate.duration_ms || 210000) - remainingMs);
-        if (diffFromRemaining < 45000) {
-          durationBonus = 15; // Prefers track that lands set right on target duration
+      // 4. Vocal Preference Scoring
+      let vocalScore = 0;
+      if (mergedControls.vocals === 'instrumental') {
+        if (candidate.vocal_presence > 25) {
+          vocalScore -= (candidate.vocal_presence - 25) * 1.5;
+        } else {
+          vocalScore += 20;
+        }
+      } else if (mergedControls.vocals === 'welcome') {
+        if (candidate.vocal_presence >= 50) {
+          vocalScore += 25;
         }
       }
 
-      // Composite Quality Score
+      // 5. Energy Intensity Calibration Bonus / Penalty
+      let energyIntensityBonus = 0;
+      if (mergedControls.intensity === 'calm') {
+        if (candidate.energy_score > 62) {
+          energyIntensityBonus -= (candidate.energy_score - 62) * 2.0;
+        }
+        if (candidate.energy_score <= 48) {
+          energyIntensityBonus += 25;
+        }
+      } else if (mergedControls.intensity === 'intense' || mergedControls.intensity === 'energetic') {
+        if (candidate.energy_score < 55) {
+          energyIntensityBonus -= (55 - candidate.energy_score) * 2.0;
+        }
+        if (candidate.energy_score >= 75) {
+          energyIntensityBonus += 25;
+        }
+      }
+
+      // 6. Preferred Genre Bonus (for 'prefer' mode)
+      let genreBonus = 0;
+      if (genreMode === 'prefer' && selectedGenres.length > 0) {
+        if (trackMatchesGenres(candidate, selectedGenres)) {
+          genreBonus = 40;
+        }
+      }
+
+      // 7. Duration Proximity Optimization near target finish
+      let durationBonus = 0;
+      const remainingMs = targetDurationMs - accumulatedMs;
+      if (remainingMs <= 300000) {
+        const diffFromRemaining = Math.abs((candidate.duration_ms || 210000) - remainingMs);
+        if (diffFromRemaining < 45000) {
+          durationBonus = 20;
+        }
+      }
+
+      // 8. Seed tie-breaking jitter
+      const seedJitter = seed
+        ? ((Math.abs(hashString(candidate.id + ':' + seed + ':' + trackIndex)) % 100) / 100) * 12
+        : 0;
+
       const qualityScore =
-        transEval.score * 0.48 +
-        trajectoryScore * 0.32 +
-        intentFitScore * 0.20 +
-        durationBonus;
+        transEval.score * transWeight +
+        trajectoryScore * trajWeight +
+        intentFitScore * intentWeight +
+        vocalScore +
+        energyIntensityBonus +
+        genreBonus +
+        durationBonus +
+        seedJitter;
 
       if (qualityScore > highestScore) {
         highestScore = qualityScore;
@@ -1118,7 +1224,6 @@ export function generateCognitiveDJFlow(
     const withCandidateDiff = Math.abs(accumulatedMs + (bestCandidate.duration_ms || 210000) - targetDurationMs);
 
     if (accumulatedMs >= minRequiredMs && currentDiff <= withCandidateDiff) {
-      // Stopping now is closer to the target than adding another full song!
       break;
     }
 
@@ -1205,7 +1310,8 @@ export function generateCognitiveDJFlow(
     computed_total_tracks: curatedSet.length,
     phases: phaseConfigs,
     curated_set: curatedSet,
-    applied_controls: mergedControls
+    applied_controls: mergedControls,
+    strictWarning
   };
 }
 

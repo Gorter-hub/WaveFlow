@@ -5,7 +5,7 @@ import {
   CuratedSetResult,
   FlowGenerationControls
 } from '../types';
-import { COGNITIVE_INTENTS, generateCognitiveDJFlow } from '../algorithm/curveGenerator';
+import { COGNITIVE_INTENTS, generateCognitiveDJFlow, trackMatchesGenres } from '../algorithm/curveGenerator';
 
 /**
  * Cleanly strips markdown code fences (like ```json or ```) and any extraneous prose
@@ -105,8 +105,27 @@ export async function curateCognitiveFlowWithGemini(
       onProgress(45, 'Submitting enriched track vectors to Gemini Cognitive Engine...');
     }
 
-    // Send a sample/subset of top candidates to fit Gemini token budget cleanly (up to 80 diverse tracks)
-    const candidates = pool.slice(0, 80);
+    // Prioritize candidates based on user genre constraints before taking the top 80 sample
+    const selectedGenres =
+      controls?.selectedGenres && controls.selectedGenres.length > 0
+        ? controls.selectedGenres
+        : (controls?.genrePreference && controls.genrePreference !== 'all' ? [controls.genrePreference] : []);
+
+    let eligiblePool = pool;
+    if (controls?.genreMode === 'strict' && selectedGenres.length > 0) {
+      eligiblePool = pool.filter((t) => trackMatchesGenres(t, selectedGenres));
+      if (eligiblePool.length === 0) {
+        return generateCognitiveDJFlow(pool, intentId, controls);
+      }
+    } else if (selectedGenres.length > 0) {
+      eligiblePool = [...pool].sort((a, b) => {
+        const aMatch = trackMatchesGenres(a, selectedGenres) ? 1 : 0;
+        const bMatch = trackMatchesGenres(b, selectedGenres) ? 1 : 0;
+        return bMatch - aMatch;
+      });
+    }
+
+    const candidates = eligiblePool.slice(0, 80);
     const trackSummaries = candidates.map((t) => ({
       id: t.id,
       title: t.name,
@@ -116,7 +135,8 @@ export async function curateCognitiveFlowWithGemini(
       valence: t.valence_score,
       bpm: t.bpm,
       vocals: t.vocal_presence,
-      vibe: t.mood_vibe
+      vibe: t.mood_vibe,
+      genre: t.genre_vibe
     }));
 
     const targetMinutes =
@@ -129,6 +149,10 @@ Synthesize an intelligent neuroscience-backed DJ set from the provided track poo
 INTENT: "${intentConfig.name}" (${intentConfig.badge})
 NEUROSCIENCE SPEC: ${intentConfig.neuroscience_rationale}
 TARGET DURATION: approximately ${targetMinutes} minutes.
+INTENSITY / ENERGY LEVEL: ${controls?.intensity || 'balanced'}
+TRANSITION STYLE: ${controls?.transitionStyle || 'natural'}
+VOCAL PREFERENCE: ${controls?.vocals || 'mixed'}
+${selectedGenres.length > 0 ? `GENRE FOCUS (${controls?.genreMode || 'prefer'} mode): ${selectedGenres.join(', ')}` : ''}
 BPM TRANSITION WINDOW: Adjacent tracks must stay within ±${intentConfig.bpm_tolerance} BPM.
 ${intentConfig.vocal_threshold_max ? `VOCAL LIMIT: Maximum vocal presence of ${intentConfig.vocal_threshold_max}% (instrumental priority).` : ''}
 

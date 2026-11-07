@@ -8,7 +8,8 @@ import {
   SpotifyAuthTokens,
   Track,
   UserProfile,
-  FlowGenerationControls
+  FlowGenerationControls,
+  WizardStep
 } from '../types';
 import {
   clearStoredTokens,
@@ -63,9 +64,14 @@ function getCachedTracks(): Track[] {
     const parsed: Track[] = JSON.parse(raw);
     if (!Array.isArray(parsed) || parsed.length === 0) return [];
 
-    // Auto-migrate: check if any track lacks BPM, energy_score, or mood_vibe
+    // Auto-migrate: check if any track lacks BPM, energy_score, mood_vibe, genre_vibe, or vocal_presence
     const needsMigration = parsed.some(
-      (t) => !t.bpm || t.energy_score === undefined || !t.mood_vibe
+      (t) =>
+        !t.bpm ||
+        t.energy_score === undefined ||
+        !t.mood_vibe ||
+        !t.genre_vibe ||
+        t.vocal_presence === undefined
     );
 
     if (needsMigration) {
@@ -118,6 +124,10 @@ interface WaveFlowStore {
   isRefining: boolean;
   storedPreviousResult: CuratedSetResult | null;
 
+  // Wizard Navigation State
+  wizardStep: WizardStep;
+  isWizardMode: boolean;
+
   // Actions
   init: () => Promise<void>;
   login: () => Promise<void>;
@@ -140,7 +150,11 @@ interface WaveFlowStore {
   clearError: () => void;
   syncLibrary: () => Promise<void>;
 
-  // Personal Ownership Actions
+  // Personal Ownership & Wizard Actions
+  setWizardStep: (step: WizardStep) => void;
+  startNewFlow: (skipConfirm?: boolean) => void;
+  editMyFlow: (step?: WizardStep) => void;
+  regenerateThisFlow: () => Promise<void>;
   confirmFlowSatisfaction: () => void;
   startRefinement: () => void;
   cancelRefinement: () => void;
@@ -148,7 +162,7 @@ interface WaveFlowStore {
   setFlowFeedback: (feedback: 'confirmed' | 'refining' | null) => void;
 
   // Core Flow Workflow
-  generateFlow: () => Promise<void>;
+  generateFlow: (seed?: number) => Promise<void>;
   exportToSpotify: () => Promise<void>;
 }
 
@@ -192,6 +206,8 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
   flowFeedback: null,
   isRefining: false,
   storedPreviousResult: null,
+  wizardStep: 1,
+  isWizardMode: true,
 
   init: async () => {
     set({ isAuthLoading: true });
@@ -199,19 +215,17 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
       const stored = getStoredTokens();
       const cached = getCachedTracks();
 
-      // Load cached tracks immediately if present
+      // Load cached tracks immediately if present without auto-generating set
       if (cached.length > 0) {
-        const initialFlow = generateCognitiveDJFlow(cached, 'deep_focus');
         set({
           likedTracks: cached,
-          flowTracks: initialFlow.curated_set,
-          flowResult: initialFlow,
-          currentPhases: initialFlow.phases,
-          targetTrackCount: initialFlow.computed_total_tracks,
-          activeTrack: initialFlow.curated_set[0] || null,
+          flowTracks: [],
+          flowResult: null,
+          wizardStep: 1,
+          isWizardMode: true,
           status: {
-            step: 'ready',
-            message: `${cached.length} canciones analizadas. Set listo: ${initialFlow.computed_total_tracks} tracks (${Math.round(initialFlow.computed_total_duration_ms / 60000)}m).`,
+            step: 'idle',
+            message: `${cached.length} canciones cargadas. Listo para crear tu Flow.`,
             progress: 100
           }
         });
@@ -425,6 +439,54 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
   setIsRefining: (isRefining: boolean) => set({ isRefining }),
   setFlowFeedback: (feedback) => set({ flowFeedback: feedback }),
 
+  setWizardStep: (step: WizardStep) => set({ wizardStep: step, isWizardMode: true }),
+
+  startNewFlow: (_skipConfirm?: boolean) => {
+    const defaultIntent: CognitiveFlowIntentId = 'deep_focus';
+    const defaultControls: FlowGenerationControls = {
+      ...COGNITIVE_INTENTS[defaultIntent].defaultControls,
+      selectedGenres: [],
+      genreMode: 'surprise',
+      intensity: 'balanced',
+      transitionStyle: 'natural',
+      vocals: 'mixed',
+      targetDurationMins: 60
+    };
+
+    set({
+      wizardStep: 1,
+      isWizardMode: true,
+      flowIntent: defaultIntent,
+      flowControls: defaultControls,
+      flowTracks: [],
+      flowResult: null,
+      currentPhases: PHASE_CONFIGS,
+      exportedPlaylist: null,
+      pendingPlaylist: null,
+      flowFeedback: null,
+      isRefining: false,
+      storedPreviousResult: null,
+      errorMessage: null,
+      status: {
+        step: 'idle',
+        message: 'WaveFlow ready. Start your new musical journey.',
+        progress: 0
+      }
+    });
+  },
+
+  editMyFlow: (step: WizardStep = 7) => {
+    set({
+      isWizardMode: true,
+      wizardStep: step
+    });
+  },
+
+  regenerateThisFlow: async () => {
+    const newSeed = Math.floor(Math.random() * 1000000) + 1;
+    await get().generateFlow(newSeed);
+  },
+
   syncLibrary: async () => {
     const { tokens, isMockMode } = get();
     set({
@@ -544,12 +606,20 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
       pendingPlaylist: null,
       flowFeedback: null,
       isRefining: false,
-      storedPreviousResult: null
+      storedPreviousResult: null,
+      wizardStep: 1,
+      isWizardMode: true
     });
   },
 
-  generateFlow: async () => {
+  generateFlow: async (seed?: number) => {
     const { isMockMode, tokens, geminiApiKey, flowIntent, flowControls } = get();
+
+    const effectiveSeed = seed !== undefined ? seed : (flowControls.seed || Date.now());
+    const effectiveControls = {
+      ...flowControls,
+      seed: effectiveSeed
+    };
 
     set({
       status: {
@@ -622,7 +692,7 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
             }
           });
         },
-        flowControls
+        effectiveControls
       );
 
       // Step 3: Set State and Celebrate
@@ -633,11 +703,14 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
         targetTrackCount: result.computed_total_tracks,
         activeTrack: get().activeTrack ? get().activeTrack : (result.curated_set[0] || null),
         selectedPhaseFilter: 'all',
+        isWizardMode: false,
         isRefining: false,
         flowFeedback: null,
         status: {
           step: 'ready',
-          message: `WaveFlow ${COGNITIVE_INTENTS[flowIntent].name} synthesized! ${result.computed_total_tracks} tracks (${Math.round(result.computed_total_duration_ms / 60000)} mins).`,
+          message:
+            result.strictWarning ||
+            `WaveFlow ${COGNITIVE_INTENTS[flowIntent].name} synthesized! ${result.computed_total_tracks} tracks (${Math.round(result.computed_total_duration_ms / 60000)} mins).`,
           progress: 100
         }
       });

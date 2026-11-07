@@ -118,21 +118,21 @@ export function evaluateTrackTransition(
   const isSmooth = transitionStyle === 'smooth' || transitionStyle === 'seamless';
   const isDynamic = transitionStyle === 'dynamic' || transitionStyle === 'adventurous';
 
-  if (isSmooth) maxAllowedDelta = Math.max(2, maxAllowedDelta - 1);
-  if (isDynamic) maxAllowedDelta += 3;
+  if (isSmooth) maxAllowedDelta = Math.min(3, Math.max(2, maxAllowedDelta - 1));
+  if (isDynamic) maxAllowedDelta = Math.max(12, maxAllowedDelta + 8);
 
   let rhythmicScore = 100;
   if (effectiveDelta <= maxAllowedDelta) {
-    rhythmicScore = 100 - (effectiveDelta / maxAllowedDelta) * 15;
+    rhythmicScore = 100 - (effectiveDelta / maxAllowedDelta) * (isSmooth ? 25 : 10);
   } else {
-    // Gradual decay penalty
+    // Sharp penalty for smooth, lenient for dynamic
     const excess = effectiveDelta - maxAllowedDelta;
-    rhythmicScore = Math.max(10, 85 - excess * 8);
+    rhythmicScore = Math.max(0, 75 - excess * (isSmooth ? 15 : 4));
   }
 
   // Bonus for clever half-time / double-time bridges
   if (isHalfDouble && effectiveDelta <= 4) {
-    rhythmicScore = Math.min(100, rhythmicScore + 10);
+    rhythmicScore = Math.min(100, rhythmicScore + 12);
   }
 
   // 2. Emotional Compatibility (Valence & Arousal/Energy step)
@@ -146,17 +146,29 @@ export function evaluateTrackTransition(
 
   let emotionalScore = 100;
 
-  // Valence continuity: whiplash > 30 is penalized unless in adventurous mode
-  if (valenceDelta <= 12) {
-    emotionalScore = 98;
-  } else if (valenceDelta <= 25) {
-    emotionalScore = 85;
+  // Valence continuity: whiplash > 25 is heavily penalized in smooth mode, welcomed in dynamic mode
+  if (isSmooth) {
+    if (valenceDelta <= 10) emotionalScore = 100;
+    else if (valenceDelta <= 20) emotionalScore = 80;
+    else emotionalScore = Math.max(10, 70 - (valenceDelta - 20) * 2.5);
+  } else if (isDynamic) {
+    // In dynamic mode, moderate valence shifts add color and excitement
+    if (valenceDelta >= 15 && valenceDelta <= 45) emotionalScore = 95;
+    else emotionalScore = 85;
   } else {
-    emotionalScore = Math.max(20, 85 - (valenceDelta - 25) * 1.8);
+    if (valenceDelta <= 12) {
+      emotionalScore = 98;
+    } else if (valenceDelta <= 25) {
+      emotionalScore = 85;
+    } else {
+      emotionalScore = Math.max(20, 85 - (valenceDelta - 25) * 1.8);
+    }
   }
 
   // Energy step appropriateness
-  if (phaseType === 'reset') {
+  if (isDynamic && energyDelta >= 15) {
+    emotionalScore = Math.min(100, emotionalScore + 10); // Reward dynamic contrasts
+  } else if (phaseType === 'reset') {
     // In a reset valley, a downward energy step is positive!
     if (nextEnergy < prevEnergy) {
       emotionalScore += 8;
@@ -168,7 +180,9 @@ export function evaluateTrackTransition(
     }
   } else if (phaseType === 'plateau') {
     // Energy should remain stable (±10%)
-    if (energyDelta > 16) {
+    if (isSmooth && energyDelta > 12) {
+      emotionalScore -= (energyDelta - 12) * 2.5;
+    } else if (energyDelta > 16) {
       emotionalScore -= (energyDelta - 16) * 1.5;
     }
   }

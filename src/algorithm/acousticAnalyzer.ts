@@ -78,7 +78,7 @@ const MOOD_PALETTE = [
 /**
  * Computes deterministic 32-bit hash string
  */
-function hashString(str: string): number {
+export function hashString(str: string): number {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     hash = (hash << 5) - hash + str.charCodeAt(i);
@@ -176,6 +176,33 @@ export function enrichTrackAcousticVectors(track: Partial<Track>): Track {
     matchedMood ||
     MOOD_PALETTE[seed % MOOD_PALETTE.length];
 
+  // Final Genre Tag: Respect explicit existing genre or infer reliably from metadata
+  let finalGenre = (track.genre_vibe || (track as any).genre || '').trim();
+  if (!finalGenre) {
+    if (fullText.includes('ska')) finalGenre = 'Ska';
+    else if (fullText.includes('reggae')) finalGenre = 'Reggae';
+    else if (fullText.includes('dub')) finalGenre = 'Dub';
+    else if (fullText.includes('punk')) finalGenre = 'Punk';
+    else if (fullText.includes('metal')) finalGenre = 'Metal';
+    else if (fullText.includes('rock')) finalGenre = 'Rock';
+    else if (fullText.includes('techno')) finalGenre = 'Techno';
+    else if (fullText.includes('house')) finalGenre = 'House';
+    else if (fullText.includes('electronic') || fullText.includes('edm') || fullText.includes('synth') || fullText.includes('remix') || fullText.includes('club')) finalGenre = 'Electronic';
+    else if (fullText.includes('ambient')) finalGenre = 'Ambient';
+    else if (fullText.includes('lofi') || fullText.includes('lo-fi') || fullText.includes('chill')) finalGenre = 'Lo-Fi';
+    else if (fullText.includes('piano') || fullText.includes('classical') || fullText.includes('orchestral')) finalGenre = 'Classical';
+    else if (fullText.includes('acoustic') || fullText.includes('unplugged')) finalGenre = 'Acoustic';
+    else if (fullText.includes('jazz') || fullText.includes('blues') || fullText.includes('soul')) finalGenre = 'Jazz';
+    else if (fullText.includes('hip hop') || fullText.includes('hip-hop') || fullText.includes('rap') || fullText.includes('trap')) finalGenre = 'Hip-Hop';
+    else if (fullText.includes('latino') || fullText.includes('salsa') || fullText.includes('cumbia')) finalGenre = 'Latin';
+    else if (fullText.includes('indie')) finalGenre = 'Indie';
+    else if (fullText.includes('pop')) finalGenre = 'Pop';
+    else {
+      const GENRE_FALLBACKS = ['Electronic', 'Rock', 'Indie', 'Lo-Fi', 'Ambient', 'Jazz', 'Pop', 'Acoustic'];
+      finalGenre = GENRE_FALLBACKS[seed % GENRE_FALLBACKS.length];
+    }
+  }
+
   return {
     id: track.id || `track-${seed}`,
     name: track.name || 'Unknown Track',
@@ -192,6 +219,7 @@ export function enrichTrackAcousticVectors(track: Partial<Track>): Track {
     bpm: finalBpm,
     vocal_presence: finalVocal,
     mood_vibe: finalMood,
+    genre_vibe: finalGenre,
 
     // Backward compatibility aliases
     energy: finalEnergy,

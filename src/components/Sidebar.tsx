@@ -27,7 +27,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings }) => {
     likedTracks,
     isMockMode,
     currentPhases,
-    flowIntent
+    flowIntent,
+    startNewFlow
   } = useWaveFlowStore();
 
   const currentIntentConfig = COGNITIVE_INTENTS[flowIntent];
@@ -66,6 +67,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings }) => {
           >
             <Sliders className={`w-4 h-4 ${activeTab === 'generate' ? 'text-spotify' : ''}`} />
             <span>DJ Flow Studio</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setActiveTab('generate');
+              startNewFlow();
+            }}
+            className="w-full flex items-center gap-3.5 px-3 py-2 rounded-lg text-xs font-semibold text-zinc-400 hover:text-spotify hover:bg-zinc-900/80 border border-zinc-800/60 transition-all group"
+            title="Start a new playlist creation journey"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-spotify group-hover:scale-110 transition-transform" />
+            <span>+ Start New Flow</span>
           </button>
 
           <button

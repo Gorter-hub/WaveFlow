@@ -26,11 +26,20 @@ export type IntensityLevel = 'calm' | 'balanced' | 'intense' | 'energetic';
 export type TransitionStyleOption = 'smooth' | 'natural' | 'dynamic' | 'seamless' | 'adventurous';
 export type VocalPresenceOption = 'instrumental' | 'mixed' | 'welcome' | 'balanced';
 
+export type GenreSelectionMode = 'surprise' | 'prefer' | 'strict';
+
+export type WizardStep = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+
 export interface FlowGenerationControls {
   targetDurationMins?: number;
   intensity?: IntensityLevel;
   transitionStyle?: TransitionStyleOption;
   vocals?: VocalPresenceOption;
+
+  // Enhanced Genre Controls
+  selectedGenres?: string[];
+  genreMode?: GenreSelectionMode;
+  seed?: number;
 
   // Contextual controls
   moodShiftCurrent?: 'calm' | 'neutral' | 'tired' | 'restless' | 'low' | 'energized';
@@ -122,6 +131,7 @@ export interface CuratedSetResult {
   phases: FlowPhaseConfig[];
   curated_set: Track[];
   applied_controls?: FlowGenerationControls;
+  strictWarning?: string;
 }
 
 export interface GenerationStatus {
