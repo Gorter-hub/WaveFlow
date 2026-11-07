@@ -97,6 +97,7 @@ interface WaveFlowStore {
   likedTracks: Track[];
   flowTracks: Track[];
   activeTrack: Track | null;
+  isPlaying: boolean;
   selectedPhaseFilter: string | 'all';
   flowIntent: CognitiveFlowIntentId;
   targetTrackCount: number;
@@ -118,6 +119,12 @@ interface WaveFlowStore {
   setCredentials: (clientId: string, geminiKey: string) => void;
   setActiveTab: (tab: 'home' | 'generate' | 'library') => void;
   setActiveTrack: (track: Track | null) => void;
+  setIsPlaying: (playing: boolean) => void;
+  togglePlay: () => void;
+  playTrack: (track: Track) => void;
+  pauseTrack: () => void;
+  skipNext: () => void;
+  skipPrevious: () => void;
   setSelectedPhaseFilter: (phase: string | 'all') => void;
   setFlowIntent: (intent: CognitiveFlowIntentId) => void;
   setTargetTrackCount: (count: number) => void;
@@ -149,6 +156,7 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
   likedTracks: [],
   flowTracks: [],
   activeTrack: null,
+  isPlaying: false,
   selectedPhaseFilter: 'all',
   flowIntent: 'deep_focus',
   targetTrackCount: 22,
@@ -268,6 +276,47 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
 
   setActiveTab: (tab) => set({ activeTab: tab }),
   setActiveTrack: (track) => set({ activeTrack: track }),
+  setIsPlaying: (playing) => set({ isPlaying: playing }),
+  togglePlay: () => {
+    const { isPlaying, activeTrack, flowTracks, likedTracks } = get();
+    if (!activeTrack) {
+      const fallback = flowTracks[0] || likedTracks[0];
+      if (fallback) {
+        set({ activeTrack: fallback, isPlaying: true });
+      }
+      return;
+    }
+    set({ isPlaying: !isPlaying });
+  },
+  playTrack: (track) => {
+    const { activeTrack, isPlaying } = get();
+    if (activeTrack?.id === track.id) {
+      set({ isPlaying: !isPlaying });
+    } else {
+      set({ activeTrack: track, isPlaying: true });
+    }
+  },
+  pauseTrack: () => set({ isPlaying: false }),
+  skipNext: () => {
+    const { activeTrack, flowTracks, likedTracks, activeTab } = get();
+    const trackPool = activeTab === 'library' ? likedTracks : (flowTracks.length > 0 ? flowTracks : likedTracks);
+    if (!trackPool || trackPool.length === 0) return;
+
+    let currentIndex = activeTrack ? trackPool.findIndex((t) => t.id === activeTrack.id) : -1;
+    const nextIndex = (currentIndex + 1) % trackPool.length;
+    const nextTrack = trackPool[nextIndex];
+    set({ activeTrack: nextTrack, isPlaying: true });
+  },
+  skipPrevious: () => {
+    const { activeTrack, flowTracks, likedTracks, activeTab } = get();
+    const trackPool = activeTab === 'library' ? likedTracks : (flowTracks.length > 0 ? flowTracks : likedTracks);
+    if (!trackPool || trackPool.length === 0) return;
+
+    let currentIndex = activeTrack ? trackPool.findIndex((t) => t.id === activeTrack.id) : 0;
+    const prevIndex = currentIndex <= 0 ? trackPool.length - 1 : currentIndex - 1;
+    const prevTrack = trackPool[prevIndex];
+    set({ activeTrack: prevTrack, isPlaying: true });
+  },
   setSelectedPhaseFilter: (phase) => set({ selectedPhaseFilter: phase }),
   setTargetTrackCount: (count) => set({ targetTrackCount: count }),
 

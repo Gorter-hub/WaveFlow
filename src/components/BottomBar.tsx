@@ -1,86 +1,139 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useWaveFlowStore } from '../store/useWaveFlowStore';
 import { formatDuration, getEnergyColor, getPhaseBadgeColor } from '../utils/formatters';
+import { djAudioSynth } from '../utils/audioSynth';
 import {
   ExternalLink,
   Loader2,
   Sparkles,
-  CheckCircle2,
-  AlertCircle,
   Play,
   Pause,
+  SkipBack,
+  SkipForward,
   Volume2,
   VolumeX,
   Music4,
-  Disc3,
+  Activity,
   Radio
 } from 'lucide-react';
 
 export const BottomBar: React.FC = () => {
   const {
     activeTrack,
+    isPlaying,
+    togglePlay,
+    skipNext,
+    skipPrevious,
     status,
     flowTracks,
     exportToSpotify,
-    exportedPlaylist,
-    isMockMode
+    exportedPlaylist
   } = useWaveFlowStore();
 
-  const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(30);
   const [isMuted, setIsMuted] = useState(false);
-  const [showEmbedPlayer, setShowEmbedPlayer] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const synthTimerRef = useRef<number | null>(null);
 
   const isExporting = status.step === 'exporting';
   const hasTracks = flowTracks.length > 0;
 
-  // Handle track changes
+  // Global Keyboard shortcuts: Space = Play/Pause, ArrowRight = Next, ArrowLeft = Prev
   useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      setIsPlaying(false);
-      setCurrentTime(0);
-
-      if (activeTrack?.preview_url) {
-        audioRef.current.src = activeTrack.preview_url;
-        audioRef.current.load();
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if user is typing in a search input
+      if (
+        document.activeElement?.tagName === 'INPUT' ||
+        document.activeElement?.tagName === 'TEXTAREA'
+      ) {
+        return;
       }
-    }
-  }, [activeTrack?.id, activeTrack?.preview_url]);
 
-  const togglePlay = () => {
-    if (!activeTrack) return;
+      if (e.code === 'Space') {
+        e.preventDefault();
+        togglePlay();
+      } else if (e.code === 'ArrowRight') {
+        e.preventDefault();
+        skipNext();
+      } else if (e.code === 'ArrowLeft') {
+        e.preventDefault();
+        skipPrevious();
+      }
+    };
 
-    if (activeTrack.preview_url && audioRef.current) {
-      if (isPlaying) {
-        audioRef.current.pause();
-        setIsPlaying(false);
-      } else {
-        audioRef.current
-          .play()
-          .then(() => setIsPlaying(true))
-          .catch((e) => {
-            console.warn('Playback error, toggling embed:', e);
-            setShowEmbedPlayer(true);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [togglePlay, skipNext, skipPrevious]);
+
+  // Audio engine synchronization
+  useEffect(() => {
+    setCurrentTime(0);
+
+    if (isPlaying && activeTrack) {
+      if (activeTrack.preview_url) {
+        // Track has real official MP3 preview
+        djAudioSynth.stop();
+        if (audioRef.current) {
+          audioRef.current.src = activeTrack.preview_url;
+          audioRef.current.load();
+          audioRef.current.play().catch(() => {
+            // Fallback to groove synth if browser blocked audio url
+            djAudioSynth.playTrackPreview(
+              activeTrack.bpm || 124,
+              activeTrack.energy_score || 50,
+              activeTrack.valence_score || 50
+            );
           });
+        }
+      } else {
+        // Track has no MP3 preview: use Web Audio DJ Groove Synthesizer at exact BPM & Energy
+        if (audioRef.current) audioRef.current.pause();
+        djAudioSynth.playTrackPreview(
+          activeTrack.bpm || 124,
+          activeTrack.energy_score || 50,
+          activeTrack.valence_score || 50
+        );
+
+        // Advance timer for synthesized preview (30s)
+        if (synthTimerRef.current) clearInterval(synthTimerRef.current);
+        let sec = 0;
+        synthTimerRef.current = window.setInterval(() => {
+          sec += 1;
+          setCurrentTime(sec);
+          if (sec >= 30) {
+            skipNext();
+          }
+        }, 1000);
       }
     } else {
-      setShowEmbedPlayer((prev) => !prev);
+      // Stopped / Paused
+      if (audioRef.current) audioRef.current.pause();
+      djAudioSynth.stop();
+      if (synthTimerRef.current) {
+        clearInterval(synthTimerRef.current);
+        synthTimerRef.current = null;
+      }
     }
-  };
+
+    return () => {
+      if (synthTimerRef.current) {
+        clearInterval(synthTimerRef.current);
+        synthTimerRef.current = null;
+      }
+    };
+  }, [isPlaying, activeTrack?.id, skipNext]);
 
   const toggleMute = () => {
-    if (audioRef.current) {
-      audioRef.current.muted = !isMuted;
-      setIsMuted(!isMuted);
-    }
+    const next = !isMuted;
+    setIsMuted(next);
+    if (audioRef.current) audioRef.current.muted = next;
+    djAudioSynth.setMuted(next);
   };
 
   const handleTimeUpdate = () => {
-    if (audioRef.current) {
+    if (audioRef.current && activeTrack?.preview_url) {
       setCurrentTime(audioRef.current.currentTime);
       if (audioRef.current.duration) {
         setDuration(audioRef.current.duration);
@@ -89,8 +142,8 @@ export const BottomBar: React.FC = () => {
   };
 
   const handleAudioEnded = () => {
-    setIsPlaying(false);
-    setCurrentTime(0);
+    // Continuous DJ set playback: automatically skip to next track!
+    skipNext();
   };
 
   const energyVal = activeTrack?.energy_score ?? activeTrack?.energy ?? 50;
@@ -99,43 +152,22 @@ export const BottomBar: React.FC = () => {
 
   return (
     <>
-      {/* Hidden HTML5 Audio Element for 30s official Spotify previews */}
+      {/* Hidden HTML5 Audio Element for official Spotify previews */}
       <audio
         ref={audioRef}
         onTimeUpdate={handleTimeUpdate}
         onEnded={handleAudioEnded}
         onError={() => {
-          setIsPlaying(false);
+          if (activeTrack) {
+            djAudioSynth.playTrackPreview(
+              activeTrack.bpm || 124,
+              activeTrack.energy_score || 50,
+              activeTrack.valence_score || 50
+            );
+          }
         }}
         preload="auto"
       />
-
-      {/* Floating Spotify Interactive Embed Player (when preview_url is not restricted or toggled) */}
-      {showEmbedPlayer && activeTrack && (
-        <div className="fixed bottom-24 right-6 z-50 bg-zinc-950 border border-zinc-700/80 rounded-2xl shadow-2xl p-2 w-80 backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4 duration-200">
-          <div className="flex items-center justify-between px-2 pb-1.5 mb-1 border-b border-zinc-800 text-xs">
-            <span className="font-bold text-spotify flex items-center gap-1.5">
-              <Radio className="w-3.5 h-3.5" />
-              <span>Spotify Mini Player</span>
-            </span>
-            <button
-              onClick={() => setShowEmbedPlayer(false)}
-              className="text-zinc-400 hover:text-white text-xs px-1.5 py-0.5 rounded hover:bg-zinc-800"
-            >
-              ✕
-            </button>
-          </div>
-          <iframe
-            src={`https://open.spotify.com/embed/track/${activeTrack.id}?utm_source=generator&theme=0`}
-            width="100%"
-            height="152"
-            frameBorder="0"
-            allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-            loading="lazy"
-            className="rounded-xl shadow-inner"
-          />
-        </div>
-      )}
 
       {/* BOTTOM CONTROL DOCK */}
       <footer className="w-full h-24 bg-zinc-950 border-t border-zinc-800 px-4 md:px-6 flex items-center justify-between relative z-40 fixed bottom-0 left-0 right-0 shadow-[0_-10px_25px_rgba(0,0,0,0.7)] select-none">
@@ -143,17 +175,11 @@ export const BottomBar: React.FC = () => {
         <div className="flex items-center gap-3 w-1/3 min-w-[200px] max-w-[340px]">
           {activeTrack ? (
             <>
-              {/* Album Art with play overlay */}
+              {/* Album Art with instant Play/Pause click */}
               <div
                 className="relative group w-14 h-14 rounded-lg overflow-hidden flex-shrink-0 cursor-pointer shadow-md border border-zinc-800"
                 onClick={togglePlay}
-                title={
-                  activeTrack.preview_url
-                    ? isPlaying
-                      ? 'Pausar preview'
-                      : 'Reproducir preview de 30s'
-                    : 'Abrir reproductor oficial de Spotify'
-                }
+                title={isPlaying ? 'Pausar (Space)' : 'Reproducir (Space)'}
               >
                 {activeTrack.albumArt ? (
                   <img
@@ -176,19 +202,22 @@ export const BottomBar: React.FC = () => {
                   )}
                 </div>
 
-                {/* Spinning Disc badge when playing */}
+                {/* Animated green playing dot */}
                 {isPlaying && (
-                  <div className="absolute bottom-1 right-1 w-3 h-3 rounded-full bg-spotify animate-ping" />
+                  <div className="absolute bottom-1 right-1 w-2.5 h-2.5 rounded-full bg-spotify animate-ping" />
                 )}
               </div>
 
-              {/* Title, Artist & Phase Badge */}
+              {/* Title, Artist & Vibe Pill */}
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <p className="font-bold text-sm text-white truncate leading-tight hover:underline cursor-pointer">
+                  <p
+                    onClick={togglePlay}
+                    className="font-bold text-sm text-white truncate leading-tight hover:underline cursor-pointer"
+                    title={activeTrack.name}
+                  >
                     {activeTrack.name}
                   </p>
-                  {/* Energy Score Pill */}
                   {energyMeta && (
                     <span
                       className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full border ${energyMeta.bg} ${energyMeta.border} ${energyMeta.text} flex-shrink-0`}
@@ -202,7 +231,7 @@ export const BottomBar: React.FC = () => {
                   {activeTrack.artist}
                 </p>
 
-                {/* Phase & Audio Indicator */}
+                {/* Audio Type Indicator & Phase Badge */}
                 <div className="flex items-center gap-2 mt-1">
                   {activeTrack.phase && (
                     <span
@@ -213,19 +242,31 @@ export const BottomBar: React.FC = () => {
                   )}
 
                   {activeTrack.preview_url ? (
-                    <span className="text-[9.5px] text-emerald-400 flex items-center gap-1">
+                    <span className="text-[9.5px] text-emerald-400 flex items-center gap-1 font-mono">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                       Preview 30s
                     </span>
                   ) : (
-                    <button
-                      onClick={() => setShowEmbedPlayer((p) => !p)}
-                      className="text-[9.5px] text-zinc-400 hover:text-spotify underline flex items-center gap-1"
+                    <span
+                      className="text-[9.5px] text-amber-400 flex items-center gap-1 font-mono"
+                      title="Groove sintetizado al tempo y energía exactos de la canción"
                     >
-                      <Disc3 className="w-3 h-3" />
-                      Embed Player
-                    </button>
+                      <Activity className="w-3 h-3 text-amber-400" />
+                      Groove {activeTrack.bpm || 124} BPM
+                    </span>
                   )}
+
+                  {/* Open in Spotify link */}
+                  <a
+                    href={`https://open.spotify.com/track/${activeTrack.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[9.5px] text-zinc-500 hover:text-spotify flex items-center gap-0.5 ml-1"
+                    title="Abrir canción completa en Spotify"
+                  >
+                    <span>Spotify</span>
+                    <ExternalLink className="w-2.5 h-2.5" />
+                  </a>
                 </div>
               </div>
             </>
@@ -242,101 +283,99 @@ export const BottomBar: React.FC = () => {
           )}
         </div>
 
-        {/* CENTER: Audio Player Controls & AI Progress */}
+        {/* CENTER: Audio Player Controls (Back, Play/Pause, Next, Time Scrubber) */}
         <div className="flex flex-col items-center justify-center max-w-md w-full px-4">
-          {/* Controls: Play/Pause, Mute, Time */}
-          <div className="flex items-center gap-4 mb-2">
-            {activeTrack?.preview_url && (
-              <button
-                onClick={toggleMute}
-                className="p-1.5 text-zinc-400 hover:text-white transition-colors"
-                title={isMuted ? 'Unmute' : 'Mute'}
-              >
-                {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4" />}
-              </button>
-            )}
+          <div className="flex items-center gap-5 mb-1.5">
+            {/* Mute button */}
+            <button
+              onClick={toggleMute}
+              className="p-1.5 text-zinc-400 hover:text-white transition-colors"
+              title={isMuted ? 'Desmutear' : 'Mutear'}
+            >
+              {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4" />}
+            </button>
 
+            {/* PREVIOUS TRACK BUTTON */}
+            <button
+              onClick={skipPrevious}
+              disabled={!activeTrack}
+              className={`p-2 text-zinc-300 hover:text-white transition-all ${
+                activeTrack ? 'hover:scale-110 active:scale-90 cursor-pointer' : 'text-zinc-600 cursor-not-allowed'
+              }`}
+              title="Canción Anterior (← Flecha Izquierda)"
+            >
+              <SkipBack className="w-5 h-5 fill-current" />
+            </button>
+
+            {/* PLAY / PAUSE BUTTON */}
             <button
               onClick={togglePlay}
               disabled={!activeTrack}
-              className={`w-9 h-9 rounded-full flex items-center justify-center transition-all ${
+              className={`w-11 h-11 rounded-full flex items-center justify-center transition-all shadow-xl ${
                 activeTrack
-                  ? 'bg-white hover:bg-white/90 text-black shadow-lg hover:scale-105 active:scale-95'
+                  ? 'bg-spotify hover:bg-spotify-hover text-black shadow-spotify/30 hover:scale-105 active:scale-95 cursor-pointer'
                   : 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
               }`}
-              title={isPlaying ? 'Pausar' : 'Reproducir'}
+              title={isPlaying ? 'Pausar (Barra Espaciadora)' : 'Reproducir (Barra Espaciadora)'}
             >
               {isPlaying ? (
-                <Pause className="w-4 h-4 fill-current text-black" />
+                <Pause className="w-5 h-5 fill-current text-black" />
               ) : (
-                <Play className="w-4 h-4 fill-current text-black ml-0.5" />
+                <Play className="w-5 h-5 fill-current text-black ml-0.5" />
               )}
             </button>
 
-            {activeTrack?.preview_url ? (
-              <span className="text-[10px] font-mono text-zinc-400">
-                {Math.floor(currentTime)}s / {Math.floor(duration)}s
-              </span>
-            ) : (
-              <span className="text-[10px] text-zinc-500 font-medium">
-                {activeTrack ? 'Preview vía Embed' : 'Listo'}
-              </span>
-            )}
-          </div>
-
-          {/* AI Status Message */}
-          <div className="flex items-center gap-2 mb-1 text-[11px] font-medium text-zinc-400 truncate max-w-full">
-            {status.step === 'idle' && (
-              <span className="flex items-center gap-1.5 text-zinc-500">
-                <span>{status.message}</span>
-              </span>
-            )}
-
-            {(status.step === 'fetching' || status.step === 'analyzing' || status.step === 'sorting') && (
-              <span className="flex items-center gap-1.5 text-spotify font-semibold">
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-spotify flex-shrink-0" />
-                <span className="truncate">{status.message}</span>
-              </span>
-            )}
-
-            {status.step === 'ready' && (
-              <span className="flex items-center gap-1.5 text-emerald-400 font-semibold truncate">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
-                <span className="truncate">{status.message}</span>
-              </span>
-            )}
-
-            {status.step === 'exported' && (
-              <span className="flex items-center gap-1.5 text-spotify font-bold truncate">
-                <Sparkles className="w-3.5 h-3.5 text-spotify flex-shrink-0" />
-                <span className="truncate">{status.message}</span>
-              </span>
-            )}
-
-            {status.step === 'error' && (
-              <span className="flex items-center gap-1.5 text-rose-400 font-semibold truncate">
-                <AlertCircle className="w-3.5 h-3.5 text-rose-400 flex-shrink-0" />
-                <span className="truncate">{status.message}</span>
-              </span>
-            )}
-          </div>
-
-          {/* Progress Bar */}
-          <div className="w-full max-w-sm bg-zinc-800/80 rounded-full h-1.5 overflow-hidden relative shadow-inner">
-            <div
-              className={`h-full transition-all duration-300 rounded-full ${
-                status.step === 'error'
-                  ? 'bg-rose-500'
-                  : status.step === 'ready' || status.step === 'exported'
-                  ? 'bg-spotify shadow-[0_0_8px_rgba(29,185,84,0.6)]'
-                  : 'bg-gradient-to-r from-emerald-500 via-spotify to-cyan-400'
+            {/* NEXT TRACK BUTTON */}
+            <button
+              onClick={skipNext}
+              disabled={!activeTrack}
+              className={`p-2 text-zinc-300 hover:text-white transition-all ${
+                activeTrack ? 'hover:scale-110 active:scale-90 cursor-pointer' : 'text-zinc-600 cursor-not-allowed'
               }`}
-              style={{ width: `${Math.max(5, status.progress)}%` }}
-            />
+              title="Siguiente Canción (→ Flecha Derecha)"
+            >
+              <SkipForward className="w-5 h-5 fill-current" />
+            </button>
+
+            {/* Equalizer Waveform Animation when playing */}
+            {isPlaying && (
+              <div className="flex items-center gap-0.5 h-4 ml-2">
+                {[...Array(6)].map((_, i) => (
+                  <div
+                    key={i}
+                    className="w-0.5 bg-spotify rounded-full"
+                    style={{
+                      height: `${Math.max(25, Math.sin(i * 1.2 + currentTime * 6) * 100)}%`,
+                      animation: `wave 0.5s ease-in-out infinite alternate ${i * 0.08}s`
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Time Scrubber Bar */}
+          <div className="w-full flex items-center gap-2 max-w-sm">
+            <span className="text-[10px] font-mono text-zinc-400 w-7 text-right">
+              0:{Math.floor(currentTime).toString().padStart(2, '0')}
+            </span>
+
+            <div className="flex-1 bg-zinc-800 rounded-full h-1 relative overflow-hidden group cursor-pointer">
+              <div
+                className={`h-full transition-all duration-200 rounded-full ${
+                  isPlaying ? 'bg-spotify shadow-[0_0_6px_rgba(29,185,84,0.6)]' : 'bg-zinc-500'
+                }`}
+                style={{ width: `${Math.min(100, (currentTime / duration) * 100)}%` }}
+              />
+            </div>
+
+            <span className="text-[10px] font-mono text-zinc-500 w-7">
+              0:{Math.floor(duration).toString().padStart(2, '0')}
+            </span>
           </div>
         </div>
 
-        {/* RIGHT: Export to Spotify CTA (Positioned safely away from the bottom-right corner) */}
+        {/* RIGHT: Export to Spotify CTA (Safely shifted away from bottom-right corner) */}
         <div className="flex items-center justify-end gap-3 mr-44 sm:mr-48">
           {exportedPlaylist && (
             <a

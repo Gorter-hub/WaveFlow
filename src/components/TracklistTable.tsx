@@ -1,12 +1,13 @@
 import React from 'react';
 import { Track } from '../types';
+import { useWaveFlowStore } from '../store/useWaveFlowStore';
 import { formatDuration, getEnergyColor } from '../utils/formatters';
-import { Clock, Play, Volume2, Activity } from 'lucide-react';
+import { Clock, Play, Pause, Volume2, Activity } from 'lucide-react';
 
 interface TracklistTableProps {
   tracks: Track[];
   activeTrackId?: string;
-  onSelectTrack: (track: Track) => void;
+  onSelectTrack?: (track: Track) => void;
   selectedPhaseFilter?: string;
 }
 
@@ -16,6 +17,10 @@ export const TracklistTable: React.FC<TracklistTableProps> = ({
   onSelectTrack,
   selectedPhaseFilter = 'all'
 }) => {
+  const { isPlaying, playTrack, activeTrack } = useWaveFlowStore();
+
+  const currentActiveId = activeTrackId || activeTrack?.id;
+
   const displayedTracks = React.useMemo(() => {
     if (!selectedPhaseFilter || selectedPhaseFilter === 'all') {
       return tracks;
@@ -31,10 +36,15 @@ export const TracklistTable: React.FC<TracklistTableProps> = ({
     );
   }
 
+  const handleRowClick = (track: Track) => {
+    if (onSelectTrack) onSelectTrack(track);
+    playTrack(track);
+  };
+
   return (
     <div className="w-full">
       {/* Table Header */}
-      <div className="sticky top-0 z-10 bg-zinc-900/90 backdrop-blur-md border-b border-zinc-800/80 px-4 py-2.5 text-xs font-medium text-zinc-400 grid grid-cols-[36px_minmax(220px,3fr)_minmax(130px,1.8fr)_130px_140px_70px] items-center gap-4 uppercase tracking-wider select-none">
+      <div className="sticky top-0 z-10 bg-zinc-900/90 backdrop-blur-md border-b border-zinc-800/80 px-4 py-2.5 text-xs font-medium text-zinc-400 grid grid-cols-[38px_minmax(220px,3fr)_minmax(130px,1.8fr)_130px_140px_70px] items-center gap-4 uppercase tracking-wider select-none">
         <div className="text-center font-mono">#</div>
         <div>Title & Artist</div>
         <div className="hidden md:block">BPM & Cadence</div>
@@ -48,12 +58,13 @@ export const TracklistTable: React.FC<TracklistTableProps> = ({
       {/* Track Rows */}
       <div className="divide-y divide-zinc-800/30">
         {displayedTracks.map((track, idx) => {
-          const isActive = activeTrackId === track.id;
+          const isActive = currentActiveId === track.id;
+          const isThisTrackPlaying = isActive && isPlaying;
           const energyVal = track.energy_score ?? track.energy ?? 50;
           const bpmVal = track.bpm || 124;
           const energyMeta = getEnergyColor(energyVal);
 
-          // Check if this row is the start of a new phase (for divider in flow view)
+          // Check if this row is the start of a new phase
           const isPhaseStart =
             (selectedPhaseFilter === 'all' || !selectedPhaseFilter) &&
             track.phase &&
@@ -81,23 +92,35 @@ export const TracklistTable: React.FC<TracklistTableProps> = ({
 
               {/* Individual Track Row */}
               <div
-                onClick={() => onSelectTrack(track)}
-                className={`group px-4 py-2.5 rounded-lg grid grid-cols-[36px_minmax(220px,3fr)_minmax(130px,1.8fr)_130px_140px_70px] items-center gap-4 cursor-pointer transition-colors duration-150 ${
+                onClick={() => handleRowClick(track)}
+                className={`group px-4 py-2.5 rounded-lg grid grid-cols-[38px_minmax(220px,3fr)_minmax(130px,1.8fr)_130px_140px_70px] items-center gap-4 cursor-pointer transition-all duration-150 ${
                   isActive
-                    ? 'bg-zinc-800/95 text-white shadow-inner'
+                    ? 'bg-zinc-800/90 text-white shadow-md border-l-2 border-spotify'
                     : 'hover:bg-zinc-800/50 text-zinc-300'
                 }`}
               >
-                {/* Index / Play indicator */}
-                <div className="text-center font-mono text-xs flex items-center justify-center">
-                  {isActive ? (
-                    <Volume2 className="w-4 h-4 text-spotify animate-pulse" />
+                {/* 1-Click Fast Play / Pause Button in Table */}
+                <div
+                  className="text-center font-mono text-xs flex items-center justify-center"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    playTrack(track);
+                  }}
+                  title={isThisTrackPlaying ? 'Pausar' : 'Reproducir'}
+                >
+                  {isThisTrackPlaying ? (
+                    <div className="relative flex items-center justify-center">
+                      <Volume2 className="w-4 h-4 text-spotify group-hover:hidden animate-pulse" />
+                      <Pause className="w-4 h-4 text-spotify hidden group-hover:block fill-current" />
+                    </div>
+                  ) : isActive ? (
+                    <Play className="w-4 h-4 text-spotify fill-current" />
                   ) : (
                     <>
                       <span className="group-hover:hidden text-zinc-500">
                         {track.overallIndex || idx + 1}
                       </span>
-                      <Play className="w-3.5 h-3.5 hidden group-hover:block text-white" />
+                      <Play className="w-3.5 h-3.5 hidden group-hover:block text-spotify fill-current" />
                     </>
                   )}
                 </div>
