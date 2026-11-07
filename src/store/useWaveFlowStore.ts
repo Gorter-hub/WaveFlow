@@ -1,3 +1,35 @@
+
+function saveCachedTracks(tracks: Track[]) {
+  try {
+    const compact = tracks.map((t) => ({
+      id: t.id,
+      name: t.name,
+      artist: t.artist,
+      artists: t.artists,
+      album: t.album,
+      albumArt: t.albumArt,
+      duration_ms: t.duration_ms,
+      uri: t.uri,
+      preview_url: t.preview_url,
+      energy: t.energy,
+      valence: t.valence
+    }));
+    localStorage.setItem('waveflow_cached_liked_songs', JSON.stringify(compact));
+  } catch (e) {
+    console.warn('Could not cache all songs to localStorage:', e);
+  }
+}
+
+function getCachedTracks(): Track[] {
+  try {
+    const raw = localStorage.getItem('waveflow_cached_liked_songs');
+    if (!raw) return [];
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
+}
+
 import { create } from 'zustand';
 import {
   FlowPhaseName,
@@ -32,6 +64,7 @@ interface WaveFlowStore {
   user: UserProfile | null;
   isAuthenticated: boolean;
   isAuthLoading: boolean;
+  isSyncingLibrary: boolean;
 
   // Tracks State
   likedTracks: Track[];
@@ -60,6 +93,7 @@ interface WaveFlowStore {
   setTargetTrackCount: (count: number) => void;
   setFlowStyle: (style: FlowStyleId) => void;
   clearError: () => void;
+  syncLibrary: () => Promise<void>;
 
   // Core Flow Workflow
   generateFlow: () => Promise<void>;
@@ -81,6 +115,7 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
   user: null,
   isAuthenticated: false,
   isAuthLoading: true,
+  isSyncingLibrary: false,
 
   likedTracks: [],
   flowTracks: [],
@@ -100,10 +135,14 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
 
   init: async () => {
     set({ isAuthLoading: true });
+    // Restore cached library immediately
+    const cached = getCachedTracks();
+    if (cached.length > 0) {
+      set({ likedTracks: cached });
+    }
     try {
       const stored = getStoredTokens();
       if (stored && stored.accessToken) {
-        // Validate / fetch profile
         if (Date.now() < stored.expiresAt) {
           try {
             const profile = await getUserProfile(stored.accessToken);
@@ -113,6 +152,10 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
               isAuthenticated: true,
               isMockMode: false
             });
+            // If library was never cached, trigger sync
+            if (cached.length === 0) {
+              get().syncLibrary();
+            }
           } catch (e) {
             console.warn('Stored token invalid, clearing:', e);
             clearStoredTokens();
@@ -178,6 +221,56 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
   setTargetTrackCount: (count) => set({ targetTrackCount: count }),
   setFlowStyle: (style) => set({ flowStyle: style }),
   clearError: () => set({ errorMessage: null }),
+syncLibrary: async () => {
+    const { tokens, isMockMode } = get();
+    set({
+      isSyncingLibrary: true,
+      status: {
+        step: 'fetching',
+        message: 'Sincronizando todas las canciones de tu biblioteca...',
+        progress: 15
+      }
+    });
+
+    try {
+      let tracks: Track[] = [];
+      if (isMockMode || !tokens?.accessToken) {
+        await new Promise((r) => setTimeout(r, 400));
+        tracks = generateMockLikedTracks();
+      } else {
+        tracks = await fetchUserLikedSongs(
+          tokens.accessToken,
+          undefined,
+          (fetched, total) => {
+            set({
+              status: {
+                step: 'fetching',
+                message: `Descargando canciones de tu biblioteca (${fetched}/${total})...`,
+                progress: 15 + Math.round((fetched / Math.max(1, total)) * 40)
+              }
+            });
+          }
+        );
+      }
+
+      saveCachedTracks(tracks);
+      set({
+        likedTracks: tracks,
+        isSyncingLibrary: false,
+        status: {
+          step: 'idle',
+          message: `Biblioteca sincronizada: ${tracks.length} canciones listas.`,
+          progress: 100
+        }
+      });
+    } catch (e: any) {
+      console.error('Error syncing library:', e);
+      set({
+        isSyncingLibrary: false,
+        errorMessage: e?.message || 'Error al sincronizar canciones de Spotify'
+      });
+    }
+  },
 
   login: async () => {
     const { spotifyClientId } = get();

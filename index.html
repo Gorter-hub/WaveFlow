@@ -6,6 +6,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>WaveFlow — AI DJ Set & Energy Curve Generator</title>
     <meta name="description" content="Transform your liked tracks into an emotional, cohesive DJ set curve using AI" />
+    <style>
+      /* Hide Netlify free tier floating badges from covering action buttons */
+      [class*="netlify"],
+      [id*="netlify"],
+      div[style*="z-index: 1000000"],
+      div[style*="z-index: 2147483647"],
+      div:has(> a[href*="netlify.com"]),
+      a[href*="netlify.com"] {
+        display: none !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        visibility: hidden !important;
+      }
+    </style>
   </head>
   <body class="bg-black text-white font-sans antialiased overflow-hidden select-none">
     <div id="root"></div>

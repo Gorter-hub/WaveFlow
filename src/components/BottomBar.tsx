@@ -334,7 +334,7 @@ export const BottomBar: React.FC = () => {
         </div>
 
         {/* RIGHT: Export to Spotify CTA (Elevated above any corner badges) */}
-        <div className="flex items-center justify-end gap-3 w-1/3 min-w-[200px] max-w-[340px]">
+        <div className="flex items-center justify-end gap-3 w-1/3 min-w-[200px] max-w-[380px] pr-28 md:pr-36" style={{ marginRight: "115px" }}>
           {/* Link to exported Spotify Playlist */}
           {exportedPlaylist && (
             <a
