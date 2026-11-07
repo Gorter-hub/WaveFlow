@@ -45,3 +45,14 @@
     height: 20%;
   }
 }
+
+/* Prevent Netlify floating badge from covering interactive buttons */
+.netlify-badge,
+[class*="netlify-identity"],
+iframe[id*="netlify"],
+div[data-netlify-deploy-id],
+[class*="netlify"] {
+  opacity: 0.1 !important;
+  pointer-events: none !important;
+}
+

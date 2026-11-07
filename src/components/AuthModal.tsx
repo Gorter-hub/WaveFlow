@@ -16,7 +16,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onOpenSettings }) => {
       <div className="absolute w-[500px] h-[500px] bg-spotify/15 rounded-full blur-[140px] pointer-events-none -translate-y-12" />
 
       {/* Main Auth Card */}
-      <div className="relative w-full max-w-md bg-zinc-950 border border-zinc-800/90 rounded-3xl p-8 md:p-10 shadow-2xl text-center space-y-6">
+      <div className="relative w-full max-w-md bg-zinc-950 border border-zinc-800/90 rounded-3xl p-8 md:p-10 shadow-2xl text-center space-y-6 pt-12 pb-10">
+        {/* Top-Right API Settings Button (Nunca tapado por insignias) */}
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          className="absolute top-4 right-4 px-3 py-1.5 rounded-full bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 transition-all flex items-center gap-1.5 text-xs font-medium shadow-md group"
+          title="Configurar credenciales API"
+        >
+          <Settings className="w-3.5 h-3.5 text-spotify group-hover:rotate-45 transition-transform" />
+          <span>API Settings</span>
+        </button>
+
         {/* App Logo */}
         <div className="mx-auto w-16 h-16 rounded-2xl bg-gradient-to-tr from-emerald-600 via-spotify to-emerald-400 flex items-center justify-center shadow-xl shadow-spotify/25">
           <Radio className="w-8 h-8 text-black stroke-[2.5]" />
