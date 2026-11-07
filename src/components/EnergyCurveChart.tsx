@@ -131,7 +131,7 @@ export const EnergyCurveChart: React.FC<EnergyCurveChartProps> = ({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
           </svg>
         </div>
-        <p className="text-sm font-medium">Click "Generate Flow" to synthesize the {currentIntent.name} neuroscience curve</p>
+        <p className="text-sm font-medium">Click "Generate Playlist" to curate your {currentIntent.name} experience</p>
       </div>
     );
   }

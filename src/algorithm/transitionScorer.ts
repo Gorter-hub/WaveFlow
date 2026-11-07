@@ -1,10 +1,10 @@
-import { Track, CognitiveFlowIntentId } from '../types';
+import { Track, CognitiveFlowIntentId, TransitionStyleOption } from '../types';
 
 export interface TransitionContext {
   intentId: CognitiveFlowIntentId;
   targetBpmDelta?: number;
   allowHalfDoubleTime?: boolean;
-  transitionStyle?: 'seamless' | 'balanced' | 'adventurous';
+  transitionStyle?: TransitionStyleOption;
   phaseType?: 'warmup' | 'build' | 'plateau' | 'reset' | 'climax' | 'cooldown';
   recentArtists?: string[]; // Last 3-4 artists in sequence
 }
@@ -110,12 +110,16 @@ export function evaluateTrackTransition(
 
   let maxAllowedDelta = 4;
   if (intentId === 'deep_focus' || intentId === 'reading_study') maxAllowedDelta = 3;
-  if (intentId === 'festival_explosive') maxAllowedDelta = 7;
-  if (intentId === 'night_drive' || intentId === 'creative_flow') maxAllowedDelta = 6;
-  if (intentId === 'genre_cadence') maxAllowedDelta = 3;
+  else if (intentId === 'festival_explosive' || intentId === 'workout') maxAllowedDelta = 7;
+  else if (intentId === 'night_drive' || intentId === 'creative_flow' || intentId === 'roadtrip' || intentId === 'musical_discovery') maxAllowedDelta = 6;
+  else if (intentId === 'genre_cadence') maxAllowedDelta = 3;
+  else if (intentId === 'morning_boost' || intentId === 'morning_motivation' || intentId === 'mood_shift') maxAllowedDelta = 5;
 
-  if (transitionStyle === 'seamless') maxAllowedDelta = Math.max(2, maxAllowedDelta - 1);
-  if (transitionStyle === 'adventurous') maxAllowedDelta += 3;
+  const isSmooth = transitionStyle === 'smooth' || transitionStyle === 'seamless';
+  const isDynamic = transitionStyle === 'dynamic' || transitionStyle === 'adventurous';
+
+  if (isSmooth) maxAllowedDelta = Math.max(2, maxAllowedDelta - 1);
+  if (isDynamic) maxAllowedDelta += 3;
 
   let rhythmicScore = 100;
   if (effectiveDelta <= maxAllowedDelta) {
@@ -237,11 +241,11 @@ export function evaluateTrackTransition(
     wRhythm = 0.45;
     wEmotion = 0.30;
     wStyle = 0.25;
-  } else if (intentId === 'festival_explosive') {
-    wRhythm = 0.30;
-    wEmotion = 0.45;
+  } else if (intentId === 'festival_explosive' || intentId === 'workout') {
+    wRhythm = 0.40;
+    wEmotion = 0.35;
     wStyle = 0.25;
-  } else if (intentId === 'night_drive' || intentId === 'creative_flow') {
+  } else if (intentId === 'night_drive' || intentId === 'creative_flow' || intentId === 'roadtrip') {
     wRhythm = 0.25;
     wEmotion = 0.40;
     wStyle = 0.35;
@@ -249,6 +253,14 @@ export function evaluateTrackTransition(
     wRhythm = 0.45;
     wEmotion = 0.20;
     wStyle = 0.35;
+  } else if (intentId === 'mood_shift') {
+    wRhythm = 0.25;
+    wEmotion = 0.50;
+    wStyle = 0.25;
+  } else if (intentId === 'musical_discovery') {
+    wRhythm = 0.30;
+    wEmotion = 0.30;
+    wStyle = 0.40;
   }
 
   const rawScore =

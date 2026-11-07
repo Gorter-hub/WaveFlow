@@ -1,38 +1,65 @@
 export type CognitiveFlowIntentId =
   | 'deep_focus'
-  | 'festival_explosive'
-  | 'night_drive'
-  | 'genre_cadence'
-  | 'relax_unwind'
-  | 'creative_flow'
   | 'reading_study'
-  | 'morning_motivation';
+  | 'creative_flow'
+  | 'relax_unwind'
+  | 'mood_shift'
+  | 'night_drive'
+  | 'festival_explosive'
+  | 'workout'
+  | 'morning_boost'
+  | 'morning_motivation' // backward compatibility alias for morning_boost
+  | 'roadtrip'
+  | 'genre_cadence'
+  | 'musical_discovery';
+
+export type IntentCategory =
+  | 'focus_creativity'
+  | 'relaxation_emotion'
+  | 'energy_movement'
+  | 'journey_exploration';
 
 export type FlowPhaseName = string;
 export type FlowStyleId = CognitiveFlowIntentId;
 
+export type IntensityLevel = 'calm' | 'balanced' | 'intense' | 'energetic';
+export type TransitionStyleOption = 'smooth' | 'natural' | 'dynamic' | 'seamless' | 'adventurous';
+export type VocalPresenceOption = 'instrumental' | 'mixed' | 'welcome' | 'balanced';
+
 export interface FlowGenerationControls {
   targetDurationMins?: number;
-  intensity?: 'calm' | 'balanced' | 'energetic';
-  transitionStyle?: 'seamless' | 'balanced' | 'adventurous';
-  vocals?: 'instrumental' | 'balanced' | 'welcome';
+  intensity?: IntensityLevel;
+  transitionStyle?: TransitionStyleOption;
+  vocals?: VocalPresenceOption;
+
+  // Contextual controls
+  moodShiftCurrent?: 'calm' | 'neutral' | 'tired' | 'restless' | 'low' | 'energized';
+  moodShiftTarget?: 'relaxed' | 'focused' | 'uplifted' | 'motivated' | 'energized' | 'reflective';
+  genrePreference?: string;
+  studyTaskType?: 'reading' | 'writing' | 'studying';
+  workoutProfile?: 'sustained' | 'intervals' | 'power';
+  discoveryNovelty?: 'balanced' | 'deep_cuts' | 'adventurous';
 }
 
 export interface CognitiveIntentConfig {
   id: CognitiveFlowIntentId;
   name: string;
   tagline: string;
-  neuroscience_rationale: string;
+  category: IntentCategory;
+  musical_objective: string;
+  neuroscience_rationale?: string; // preserved for compatibility
   duration_target_mins: [number, number]; // [minMins, maxMins]
+  default_duration_mins: number;
   target_energy_range: [number, number];
-  bpm_tolerance: number; // max allowable BPM delta between adjacent tracks
-  vocal_threshold_max?: number; // max allowable vocal presence for focus/study
+  target_valence_range?: [number, number];
+  bpm_tolerance: number;
+  vocal_threshold_max?: number;
   badge: string;
   color: string;
   accentGradient: string;
-  category: 'core' | 'extended';
   phases: CognitivePhaseTemplate[];
-  defaultControls: Required<FlowGenerationControls>;
+  defaultControls: Required<Pick<FlowGenerationControls, 'targetDurationMins' | 'intensity' | 'transitionStyle' | 'vocals'>> &
+    Partial<FlowGenerationControls>;
 }
 
 export interface CognitivePhaseTemplate {
@@ -98,7 +125,7 @@ export interface CuratedSetResult {
 }
 
 export interface GenerationStatus {
-  step: 'idle' | 'fetching' | 'analyzing' | 'sorting' | 'ready' | 'exporting' | 'exported' | 'error';
+  step: 'idle' | 'configuring' | 'fetching' | 'analyzing' | 'sorting' | 'ready' | 'exporting' | 'exported' | 'error';
   message: string;
   progress: number; // 0 to 100
   totalTracksFound?: number;

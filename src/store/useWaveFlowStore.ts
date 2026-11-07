@@ -325,50 +325,30 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
   setTargetTrackCount: (count) => set({ targetTrackCount: count }),
 
   setFlowIntent: (intent: CognitiveFlowIntentId) => {
-    const defaultControls = { ...COGNITIVE_INTENTS[intent].defaultControls };
+    const intentConfig = COGNITIVE_INTENTS[intent] || COGNITIVE_INTENTS.deep_focus;
+    const defaultControls: FlowGenerationControls = { ...intentConfig.defaultControls };
     set({
       flowIntent: intent,
       flowControls: defaultControls,
-      selectedPhaseFilter: 'all'
+      selectedPhaseFilter: 'all',
+      status: {
+        step: 'idle',
+        message: `${intentConfig.name} configured (${defaultControls.targetDurationMins || 60}m). Fine-tune controls and click "Generate Playlist".`,
+        progress: 0
+      }
     });
-    const { likedTracks } = get();
-    // If tracks are already loaded, immediately preview the new cognitive arc
-    if (likedTracks.length > 0) {
-      const preview = generateCognitiveDJFlow(likedTracks, intent, defaultControls);
-      set({
-        flowTracks: preview.curated_set,
-        flowResult: preview,
-        currentPhases: preview.phases,
-        targetTrackCount: preview.computed_total_tracks,
-        activeTrack: preview.curated_set[0] || null,
-        status: {
-          step: 'ready',
-          message: `${COGNITIVE_INTENTS[intent].name} arc generated: ${preview.computed_total_tracks} tracks (${Math.round(preview.computed_total_duration_ms / 60000)} mins).`,
-          progress: 100
-        }
-      });
-    }
   },
 
   setFlowControls: (controls: Partial<FlowGenerationControls>) => {
     const updated = { ...get().flowControls, ...controls };
-    set({ flowControls: updated });
-    const { likedTracks, flowIntent } = get();
-    if (likedTracks.length > 0) {
-      const updatedFlow = generateCognitiveDJFlow(likedTracks, flowIntent, updated);
-      set({
-        flowTracks: updatedFlow.curated_set,
-        flowResult: updatedFlow,
-        currentPhases: updatedFlow.phases,
-        targetTrackCount: updatedFlow.computed_total_tracks,
-        activeTrack: updatedFlow.curated_set[0] || null,
-        status: {
-          step: 'ready',
-          message: `Set updated: ${updatedFlow.computed_total_tracks} tracks (${Math.round(updatedFlow.computed_total_duration_ms / 60000)}m) · ${updated.intensity} / ${updated.transitionStyle}.`,
-          progress: 100
-        }
-      });
-    }
+    set({
+      flowControls: updated,
+      status: {
+        step: 'idle',
+        message: `Parameters adjusted (${updated.targetDurationMins}m · ${updated.intensity} · ${updated.transitionStyle}). Click "Generate Playlist" to create set.`,
+        progress: 0
+      }
+    });
   },
 
   clearError: () => set({ errorMessage: null }),

@@ -226,6 +226,17 @@ INSTRUCTIONS:
       });
 
       const totalMs = curatedSet.reduce((acc, t) => acc + (t.duration_ms || 210000), 0);
+      const targetMs = targetMinutes * 60 * 1000;
+
+      // STRICT DURATION VALIDATION (Problem A Fix):
+      // If Gemini returned an incomplete playlist (e.g. 10 tracks / 42 min when 90m requested),
+      // reject the premature result and run the full adaptive duration-packing engine.
+      if (totalMs < targetMs * 0.92) {
+        console.warn(
+          `Gemini returned incomplete set: ${curatedSet.length} tracks (${(totalMs / 60000).toFixed(1)} mins) vs target ${targetMinutes} mins. Running complete duration engine.`
+        );
+        return generateCognitiveDJFlow(pool, intentId, controls);
+      }
 
       if (onProgress) {
         onProgress(100, `Synthesized ${curatedSet.length} tracks with Gemini AI.`);
