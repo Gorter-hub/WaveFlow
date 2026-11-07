@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useWaveFlowStore } from '../store/useWaveFlowStore';
 import { formatDuration, getEnergyColor, getPhaseBadgeColor } from '../utils/formatters';
 import { djAudioSynth } from '../utils/audioSynth';
+import { resolveTrackAudioPreview, prefetchUpcomingPreviews } from '../utils/audioResolver';
 import {
   ExternalLink,
   Loader2,
@@ -13,8 +14,7 @@ import {
   Volume2,
   VolumeX,
   Music4,
-  Activity,
-  Radio
+  Activity
 } from 'lucide-react';
 
 export const BottomBar: React.FC = () => {
@@ -33,6 +33,8 @@ export const BottomBar: React.FC = () => {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(30);
   const [isMuted, setIsMuted] = useState(false);
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
+  const [hasRealAudio, setHasRealAudio] = useState(true);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const synthTimerRef = useRef<number | null>(null);
@@ -43,7 +45,6 @@ export const BottomBar: React.FC = () => {
   // Global Keyboard shortcuts: Space = Play/Pause, ArrowRight = Next, ArrowLeft = Prev
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger if user is typing in a search input
       if (
         document.activeElement?.tagName === 'INPUT' ||
         document.activeElement?.tagName === 'TEXTAREA'
@@ -67,48 +68,69 @@ export const BottomBar: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [togglePlay, skipNext, skipPrevious]);
 
-  // Audio engine synchronization
+  // Real Audio Resolution & Playback
   useEffect(() => {
+    let isCancelled = false;
     setCurrentTime(0);
 
-    if (isPlaying && activeTrack) {
-      if (activeTrack.preview_url) {
-        // Track has real official MP3 preview
-        djAudioSynth.stop();
-        if (audioRef.current) {
-          audioRef.current.src = activeTrack.preview_url;
-          audioRef.current.load();
-          audioRef.current.play().catch(() => {
-            // Fallback to groove synth if browser blocked audio url
-            djAudioSynth.playTrackPreview(
-              activeTrack.bpm || 124,
-              activeTrack.energy_score || 50,
-              activeTrack.valence_score || 50
-            );
-          });
-        }
-      } else {
-        // Track has no MP3 preview: use Web Audio DJ Groove Synthesizer at exact BPM & Energy
-        if (audioRef.current) audioRef.current.pause();
-        djAudioSynth.playTrackPreview(
-          activeTrack.bpm || 124,
-          activeTrack.energy_score || 50,
-          activeTrack.valence_score || 50
-        );
+    const playActiveAudio = async () => {
+      if (!activeTrack) return;
+      setIsLoadingAudio(true);
 
-        // Advance timer for synthesized preview (30s)
-        if (synthTimerRef.current) clearInterval(synthTimerRef.current);
-        let sec = 0;
-        synthTimerRef.current = window.setInterval(() => {
-          sec += 1;
-          setCurrentTime(sec);
-          if (sec >= 30) {
-            skipNext();
+      try {
+        // Resolve real authentic 30s studio audio recording with original vocals & instruments
+        const audioUrl = await resolveTrackAudioPreview(activeTrack);
+        if (isCancelled) return;
+
+        if (audioUrl && audioRef.current) {
+          setHasRealAudio(true);
+          djAudioSynth.stop();
+          if (synthTimerRef.current) {
+            clearInterval(synthTimerRef.current);
+            synthTimerRef.current = null;
           }
-        }, 1000);
+
+          audioRef.current.src = audioUrl;
+          audioRef.current.load();
+          await audioRef.current.play();
+          setIsLoadingAudio(false);
+
+          // Pre-fetch upcoming tracks in background
+          prefetchUpcomingPreviews(flowTracks, (activeTrack.overallIndex || 1) - 1, 4);
+          return;
+        }
+      } catch (err) {
+        console.warn('Real audio resolution error, falling back:', err);
       }
+
+      if (isCancelled) return;
+      setIsLoadingAudio(false);
+
+      // Fallback only if no preview exists online
+      setHasRealAudio(false);
+      if (audioRef.current) audioRef.current.pause();
+      djAudioSynth.playTrackPreview(
+        activeTrack.bpm || 124,
+        activeTrack.energy_score || 50,
+        activeTrack.valence_score || 50
+      );
+
+      // Advance timer for synthesized preview (30s)
+      if (synthTimerRef.current) clearInterval(synthTimerRef.current);
+      let sec = 0;
+      synthTimerRef.current = window.setInterval(() => {
+        sec += 1;
+        setCurrentTime(sec);
+        if (sec >= 30) {
+          skipNext();
+        }
+      }, 1000);
+    };
+
+    if (isPlaying && activeTrack) {
+      playActiveAudio();
     } else {
-      // Stopped / Paused
+      setIsLoadingAudio(false);
       if (audioRef.current) audioRef.current.pause();
       djAudioSynth.stop();
       if (synthTimerRef.current) {
@@ -118,12 +140,13 @@ export const BottomBar: React.FC = () => {
     }
 
     return () => {
+      isCancelled = true;
       if (synthTimerRef.current) {
         clearInterval(synthTimerRef.current);
         synthTimerRef.current = null;
       }
     };
-  }, [isPlaying, activeTrack?.id, skipNext]);
+  }, [isPlaying, activeTrack?.id, skipNext, flowTracks]);
 
   const toggleMute = () => {
     const next = !isMuted;
@@ -133,7 +156,7 @@ export const BottomBar: React.FC = () => {
   };
 
   const handleTimeUpdate = () => {
-    if (audioRef.current && activeTrack?.preview_url) {
+    if (audioRef.current && hasRealAudio) {
       setCurrentTime(audioRef.current.currentTime);
       if (audioRef.current.duration) {
         setDuration(audioRef.current.duration);
@@ -142,7 +165,7 @@ export const BottomBar: React.FC = () => {
   };
 
   const handleAudioEnded = () => {
-    // Continuous DJ set playback: automatically skip to next track!
+    // Continuous playback: automatically play the next track in set!
     skipNext();
   };
 
@@ -152,13 +175,14 @@ export const BottomBar: React.FC = () => {
 
   return (
     <>
-      {/* Hidden HTML5 Audio Element for official Spotify previews */}
+      {/* HTML5 Audio Element for authentic 30s studio audio previews */}
       <audio
         ref={audioRef}
         onTimeUpdate={handleTimeUpdate}
         onEnded={handleAudioEnded}
         onError={() => {
-          if (activeTrack) {
+          if (activeTrack && isPlaying) {
+            setHasRealAudio(false);
             djAudioSynth.playTrackPreview(
               activeTrack.bpm || 124,
               activeTrack.energy_score || 50,
@@ -179,7 +203,7 @@ export const BottomBar: React.FC = () => {
               <div
                 className="relative group w-14 h-14 rounded-lg overflow-hidden flex-shrink-0 cursor-pointer shadow-md border border-zinc-800"
                 onClick={togglePlay}
-                title={isPlaying ? 'Pausar (Space)' : 'Reproducir (Space)'}
+                title={isPlaying ? 'Pausar (Space)' : 'Reproducir Canción Real (Space)'}
               >
                 {activeTrack.albumArt ? (
                   <img
@@ -208,7 +232,7 @@ export const BottomBar: React.FC = () => {
                 )}
               </div>
 
-              {/* Title, Artist & Vibe Pill */}
+              {/* Title, Artist & Real Audio Pill */}
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <p
@@ -241,15 +265,15 @@ export const BottomBar: React.FC = () => {
                     </span>
                   )}
 
-                  {activeTrack.preview_url ? (
+                  {hasRealAudio ? (
                     <span className="text-[9.5px] text-emerald-400 flex items-center gap-1 font-mono">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                      Preview 30s
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      Audio Real (30s)
                     </span>
                   ) : (
                     <span
                       className="text-[9.5px] text-amber-400 flex items-center gap-1 font-mono"
-                      title="Groove sintetizado al tempo y energía exactos de la canción"
+                      title="Groove sintetizado al tempo de la canción"
                     >
                       <Activity className="w-3 h-3 text-amber-400" />
                       Groove {activeTrack.bpm || 124} BPM
@@ -307,7 +331,7 @@ export const BottomBar: React.FC = () => {
               <SkipBack className="w-5 h-5 fill-current" />
             </button>
 
-            {/* PLAY / PAUSE BUTTON */}
+            {/* PLAY / PAUSE BUTTON WITH LOADING SPINNER */}
             <button
               onClick={togglePlay}
               disabled={!activeTrack}
@@ -316,9 +340,11 @@ export const BottomBar: React.FC = () => {
                   ? 'bg-spotify hover:bg-spotify-hover text-black shadow-spotify/30 hover:scale-105 active:scale-95 cursor-pointer'
                   : 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
               }`}
-              title={isPlaying ? 'Pausar (Barra Espaciadora)' : 'Reproducir (Barra Espaciadora)'}
+              title={isPlaying ? 'Pausar (Barra Espaciadora)' : 'Reproducir Canción Real (Barra Espaciadora)'}
             >
-              {isPlaying ? (
+              {isLoadingAudio ? (
+                <Loader2 className="w-5 h-5 animate-spin text-black" />
+              ) : isPlaying ? (
                 <Pause className="w-5 h-5 fill-current text-black" />
               ) : (
                 <Play className="w-5 h-5 fill-current text-black ml-0.5" />
@@ -365,7 +391,7 @@ export const BottomBar: React.FC = () => {
                 className={`h-full transition-all duration-200 rounded-full ${
                   isPlaying ? 'bg-spotify shadow-[0_0_6px_rgba(29,185,84,0.6)]' : 'bg-zinc-500'
                 }`}
-                style={{ width: `${Math.min(100, (currentTime / duration) * 100)}%` }}
+                style={{ width: `${Math.min(100, (currentTime / Math.max(1, duration)) * 100)}%` }}
               />
             </div>
 
