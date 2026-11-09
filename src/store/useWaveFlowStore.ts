@@ -27,6 +27,13 @@ import {
   PHASE_CONFIGS
 } from '../algorithm/curveGenerator';
 import { enrichTrackLibrary } from '../algorithm/acousticAnalyzer';
+import { getAllCachedTracks, saveCachedTracks as saveTracksToDB } from '../services/db';
+import {
+  evaluateBidirectionalSwapCost,
+  evaluateTrackTransition,
+  TransitionContext
+} from '../algorithm/transitionScorer';
+import { evaluateCamelotTransition } from '../algorithm/camelot';
 import { generateMockLikedTracks } from '../api/mockData';
 import confetti from 'canvas-confetti';
 
@@ -124,12 +131,22 @@ interface WaveFlowStore {
   isRefining: boolean;
   storedPreviousResult: CuratedSetResult | null;
 
-  // Wizard Navigation State
+  // Wizard Navigation & Fine-Tune Engine State
   wizardStep: WizardStep;
   isWizardMode: boolean;
+  isFineTuneOpen: boolean;
 
   // Actions
   init: () => Promise<void>;
+  setIsFineTuneOpen: (open: boolean) => void;
+  swapTrackInFlow: (index: number, newTrack: Track) => void;
+  getSwapCandidates: (index: number) => {
+    track: Track;
+    combinedScore: number;
+    note: string;
+    camelotKey: string;
+    harmonicRelation: string;
+  }[];
   login: () => Promise<void>;
   handleAuthCallback: (code: string) => Promise<boolean>;
   logout: () => void;
@@ -208,12 +225,30 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
   storedPreviousResult: null,
   wizardStep: 1,
   isWizardMode: true,
+  isFineTuneOpen: false,
+
+  setIsFineTuneOpen: (open: boolean) => set({ isFineTuneOpen: open }),
 
   init: async () => {
     set({ isAuthLoading: true });
     try {
       const stored = getStoredTokens();
-      const cached = getCachedTracks();
+      // 1. Try loading from fast local-first IndexedDB
+      let cached = await getAllCachedTracks();
+      if (!cached || cached.length === 0) {
+        // Fallback to localStorage if IndexedDB is still fresh
+        cached = getCachedTracks() as any[];
+        if (cached && cached.length > 0) {
+          await saveTracksToDB(cached as any);
+        }
+      } else {
+        // Ensure all loaded tracks have Camelot & Circumplex fields
+        const needsHarmonicMigration = cached.some((t: any) => !t.camelot_key || t.arousal_norm === undefined);
+        if (needsHarmonicMigration) {
+          cached = enrichTrackLibrary(cached) as any;
+          await saveTracksToDB(cached as any);
+        }
+      }
 
       // Load cached tracks immediately if present without auto-generating set
       if (cached.length > 0) {
@@ -225,7 +260,7 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
           isWizardMode: true,
           status: {
             step: 'idle',
-            message: `${cached.length} canciones cargadas. Listo para crear tu Flow.`,
+            message: `${cached.length} canciones cargadas (IndexedDB). Listo para crear tu Flow.`,
             progress: 100
           }
         });
@@ -521,13 +556,14 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
 
       // Automatically analyze & enrich all tracks with cognitive acoustic vectors
       const enrichedTracks = enrichTrackLibrary(rawTracks);
+      await saveTracksToDB(enrichedTracks);
       saveCachedTracks(enrichedTracks);
       set({
         likedTracks: enrichedTracks,
         isSyncingLibrary: false,
         status: {
           step: 'idle',
-          message: `Biblioteca analizada: ${enrichedTracks.length} canciones con BPM, energía y mood únicos.`,
+          message: `Biblioteca analizada (IndexedDB): ${enrichedTracks.length} canciones con BPM, Camelot Keys y perfiles de energía.`,
           progress: 100
         }
       });
@@ -538,6 +574,113 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
         errorMessage: e?.message || 'Error al sincronizar canciones de Spotify'
       });
     }
+  },
+
+  swapTrackInFlow: (index: number, newTrack: Track) => {
+    const { flowTracks, flowIntent, flowControls, flowResult } = get();
+    if (index < 0 || index >= flowTracks.length) return;
+
+    const updated = [...flowTracks];
+    const prevTrack = index > 0 ? updated[index - 1] : null;
+    const nextTrack = index < updated.length - 1 ? updated[index + 1] : null;
+
+    const context: TransitionContext = {
+      intentId: flowIntent,
+      transitionStyle: flowControls.transitionStyle || 'natural',
+      phaseType: (updated[index].phase as any) || 'plateau'
+    };
+
+    const evalIn = evaluateTrackTransition(prevTrack, newTrack, context);
+
+    const replacedTrack: Track = {
+      ...newTrack,
+      overallIndex: index + 1,
+      phase: updated[index].phase,
+      phaseIndex: updated[index].phaseIndex,
+      transition_note: evalIn.note,
+      transition_score: evalIn.score
+    };
+
+    updated[index] = replacedTrack;
+
+    // If there is a next track, update its incoming transition from this new track
+    if (nextTrack) {
+      const evalOut = evaluateTrackTransition(replacedTrack, nextTrack, context);
+      updated[index + 1] = {
+        ...nextTrack,
+        transition_note: evalOut.note,
+        transition_score: evalOut.score
+      };
+    }
+
+    const newTotalDuration = updated.reduce((acc, t) => acc + (t.duration_ms || 210000), 0);
+
+    const updatedResult: CuratedSetResult | null = flowResult
+      ? {
+          ...flowResult,
+          curated_set: updated,
+          computed_total_duration_ms: newTotalDuration
+        }
+      : null;
+
+    set({
+      flowTracks: updated,
+      flowResult: updatedResult,
+      activeTrack: get().activeTrack?.id === flowTracks[index]?.id ? replacedTrack : get().activeTrack
+    });
+  },
+
+  getSwapCandidates: (index: number) => {
+    const { flowTracks, likedTracks, flowIntent, flowControls } = get();
+    if (index < 0 || index >= flowTracks.length) return [];
+
+    const currentTrack = flowTracks[index];
+    const prevTrack = index > 0 ? flowTracks[index - 1] : null;
+    const nextTrack = index < flowTracks.length - 1 ? flowTracks[index + 1] : null;
+
+    const usedIds = new Set(flowTracks.map((t) => t.id));
+
+    // Exclude currently placed tracks (except the current one)
+    const available = likedTracks.filter((t) => !usedIds.has(t.id) && t.id !== currentTrack.id);
+
+    const context: TransitionContext = {
+      intentId: flowIntent,
+      transitionStyle: flowControls.transitionStyle || 'natural',
+      phaseType: (currentTrack.phase as any) || 'plateau'
+    };
+
+    const scored = available.map((candidate) => {
+      const { combinedScore, note } = evaluateBidirectionalSwapCost(
+        candidate,
+        prevTrack,
+        nextTrack,
+        context
+      );
+
+      const energyDiff = Math.abs(
+        (candidate.energy_score ?? 50) - (currentTrack.energy_score ?? 50)
+      );
+      const energyMatch = Math.max(0, 100 - energyDiff * 2.2);
+
+      // Total suitability: 70% bidirectional transition flow + 30% phase energy trajectory fit
+      const totalScore = Math.round(combinedScore * 0.70 + energyMatch * 0.30);
+
+      const harmonicEval = evaluateCamelotTransition(
+        prevTrack?.camelot_key,
+        candidate.camelot_key
+      );
+
+      return {
+        track: candidate,
+        combinedScore: totalScore,
+        note,
+        camelotKey: candidate.camelot_key || '8A',
+        harmonicRelation: harmonicEval.label
+      };
+    });
+
+    scored.sort((a, b) => b.combinedScore - a.combinedScore);
+    return scored.slice(0, 6);
   },
 
   login: async () => {

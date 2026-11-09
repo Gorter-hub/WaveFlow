@@ -1062,7 +1062,8 @@ export function generateCognitiveDJFlow(
   curatedSet.push({
     ...opener,
     overallIndex: 1,
-    transition_note: openerEval.note
+    transition_note: openerEval.note,
+    transition_score: openerEval.score
   });
 
   // 6. ADAPTIVE SEQUENCING LOOP WITH HARD DURATION CONSTRAINT
@@ -1234,7 +1235,8 @@ export function generateCognitiveDJFlow(
     curatedSet.push({
       ...bestCandidate,
       overallIndex: trackIndex++,
-      transition_note: bestEval.note
+      transition_note: bestEval.note,
+      transition_score: bestEval.score
     });
 
     currentAnchor = bestCandidate;

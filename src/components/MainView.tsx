@@ -3,8 +3,9 @@ import { useWaveFlowStore } from '../store/useWaveFlowStore';
 import { EnergyCurveChart } from './EnergyCurveChart';
 import { TracklistTable } from './TracklistTable';
 import { COGNITIVE_INTENTS } from '../algorithm/curveGenerator';
-import { CognitiveFlowIntentId, IntentCategory, WizardStep } from '../types';
+import { CognitiveFlowIntentId, IntentCategory } from '../types';
 import { formatDuration } from '../utils/formatters';
+import { getCamelotBadgeStyle } from '../algorithm/camelot';
 import {
   Sparkles,
   Loader2,
@@ -31,15 +32,15 @@ import {
   Layers,
   CheckCircle2,
   ArrowRight,
-  ArrowLeft,
   Check,
   Sliders,
-  Undo2,
   AlertTriangle,
   Music,
   Plus,
-  X,
-  ListMusic
+  ListMusic,
+  ChevronDown,
+  ChevronUp,
+  Disc3
 } from 'lucide-react';
 
 interface MainViewProps {
@@ -99,14 +100,9 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
     errorMessage,
     clearError,
     flowFeedback,
-    isRefining,
-    storedPreviousResult,
     confirmFlowSatisfaction,
-    startRefinement,
-    cancelRefinement,
-    wizardStep,
-    isWizardMode,
-    setWizardStep,
+    isFineTuneOpen,
+    setIsFineTuneOpen,
     startNewFlow,
     editMyFlow,
     regenerateThisFlow,
@@ -126,7 +122,7 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
 
   const isExporting = status.step === 'exporting';
   const hasGeneratedTracks = flowTracks.length > 0;
-  const isCreationWizardActive = isWizardMode || !hasGeneratedTracks;
+  const isCreationMode = !hasGeneratedTracks || activeTab === 'generate';
 
   // Extract top genres from curated set for personal reveal
   const curatedGenres = Array.from(
@@ -205,7 +201,7 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
     const updated = exists
       ? selectedGenres.filter((g) => g !== genre)
       : [...selectedGenres, genre];
-    
+
     setFlowControls({
       selectedGenres: updated,
       genreMode: genreMode === 'surprise' && updated.length > 0 ? 'prefer' : genreMode
@@ -225,7 +221,7 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
   };
 
   const handlePromptStartNewFlow = () => {
-    if (hasGeneratedTracks || wizardStep > 1) {
+    if (hasGeneratedTracks) {
       setShowResetModal(true);
     } else {
       startNewFlow();
@@ -239,7 +235,7 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
 
   return (
     <main className="flex-1 overflow-y-auto bg-zinc-900 text-white relative flex flex-col h-[calc(100vh-6rem)]">
-      {/* Dynamic Top Ambient Gradient */}
+      {/* Top Ambient Dynamic Gradient */}
       <div className="absolute top-0 left-0 right-0 h-96 bg-gradient-to-b from-emerald-950/40 via-zinc-900/80 to-zinc-900 pointer-events-none" />
 
       {/* Error Banner */}
@@ -271,8 +267,8 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
         </div>
       )}
 
-      {/* Main Content Sections Based on Tab */}
-      <div className="relative z-10 p-6 md:p-8 flex-1">
+      {/* Main Container */}
+      <div className="relative z-10 p-5 md:p-8 flex-1">
         {/* ==================== TAB 1: GENERATE FLOW (COGNITIVE DJ STUDIO) ==================== */}
         {activeTab === 'generate' && (
           <div className="space-y-6 max-w-7xl mx-auto">
@@ -281,21 +277,23 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
               <div>
                 <div className="flex items-center gap-2 text-xs font-semibold tracking-wider text-spotify uppercase mb-1">
                   <Sparkles className="w-4 h-4 text-spotify" />
-                  <span>Adaptive Music Experience Builder</span>
+                  <span>Neuroacoustic Curation Workstation</span>
                   {isMockMode && (
                     <span className="ml-2 px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px]">
                       Preview Mode
                     </span>
                   )}
                 </div>
-                <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-white">
-                  WaveFlow DJ Studio
+                <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-white flex items-center gap-3">
+                  <span>WaveFlow DJ Studio</span>
+                  <span className="text-xs px-2.5 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-300 font-mono font-normal hidden sm:inline">
+                    Camelot Harmonic Engine
+                  </span>
                 </h1>
               </div>
 
               {/* Universal Header Actions */}
               <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
-                {/* 1. START NEW FLOW BUTTON (Always visible across wizard & results) */}
                 <button
                   onClick={handlePromptStartNewFlow}
                   className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white font-bold text-xs uppercase tracking-wider border border-zinc-700 hover:border-spotify/50 shadow-md transition-all hover:scale-105 active:scale-95 group"
@@ -305,16 +303,19 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
                   <span>Start New Flow</span>
                 </button>
 
-                {/* If on final results screen, show quick action shortcuts */}
-                {!isCreationWizardActive && (
+                {hasGeneratedTracks && (
                   <>
                     <button
-                      onClick={() => editMyFlow(7)}
-                      className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-full bg-zinc-800/90 hover:bg-zinc-700 text-zinc-300 hover:text-white font-semibold text-xs border border-zinc-700 transition-all"
-                      title="Return to wizard to adjust parameters"
+                      onClick={() => setIsFineTuneOpen(!isFineTuneOpen)}
+                      className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-full text-xs font-semibold border transition-all ${
+                        isFineTuneOpen
+                          ? 'bg-spotify text-black border-spotify font-bold shadow-md shadow-spotify/20'
+                          : 'bg-zinc-800/90 hover:bg-zinc-700 text-zinc-300 hover:text-white border-zinc-700'
+                      }`}
+                      title="Toggle the fine-tune parameter engine"
                     >
-                      <Sliders className="w-3.5 h-3.5 text-spotify" />
-                      <span>Edit My Flow</span>
+                      <SlidersHorizontal className="w-3.5 h-3.5" />
+                      <span>Fine-Tune</span>
                     </button>
 
                     <button
@@ -329,12 +330,12 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
                   </>
                 )}
 
-                {/* Sync / Update Library button */}
+                {/* Local-First IndexedDB Library Sync Button */}
                 <button
                   onClick={syncLibrary}
                   disabled={isSyncingLibrary || isGenerating}
                   className="flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-full bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 hover:text-white font-semibold text-xs transition-all border border-zinc-700 shadow-md"
-                  title="Sincronizar biblioteca completa desde Spotify"
+                  title="Sincronizar biblioteca y actualizar vectores acústicos en IndexedDB"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isSyncingLibrary ? 'animate-spin text-spotify' : ''}`} />
                   <span className="hidden sm:inline">
@@ -349,884 +350,406 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
             </div>
 
             {/* =========================================================================
-                PART A: STEP-BY-STEP CREATION WIZARD (Visible when isCreationWizardActive)
-                ONLY ONE STEP IS RENDERED AT A TIME!
+                PART A: 1-CLICK EXPRESS FLOW INTERFACE
+                (Zero friction: select experience -> 1-click synthesis, or expand fine-tuning)
                ========================================================================= */}
-            {isCreationWizardActive ? (
-              <div className="space-y-6">
-                {/* 7-Step Progress Bar Indicator */}
-                <div className="bg-zinc-950/70 border border-zinc-800/80 rounded-2xl p-4 sm:p-5 shadow-xl backdrop-blur-md">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
-                    <div className="flex items-center gap-2.5">
-                      <span className="w-7 h-7 rounded-full bg-spotify text-black font-black text-xs flex items-center justify-center">
-                        {wizardStep}
-                      </span>
-                      <div>
-                        <span className="text-xs font-bold uppercase tracking-wider text-spotify">
-                          Step {wizardStep} of 7
-                        </span>
-                        <h2 className="text-sm sm:text-base font-extrabold text-white leading-tight">
-                          {wizardStep === 1 && 'Choose Your Experience'}
-                          {wizardStep === 2 && 'Choose Your Sound (Genres)'}
-                          {wizardStep === 3 && 'Shape Your Energy'}
-                          {wizardStep === 4 && 'Define Your Flow (Transitions)'}
-                          {wizardStep === 5 && 'Choose the Voices'}
-                          {wizardStep === 6 && 'Set the Duration'}
-                          {wizardStep === 7 && 'Review Your Journey'}
-                        </h2>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 self-end sm:self-center">
-                      {[1, 2, 3, 4, 5, 6, 7].map((s) => (
+            {(!hasGeneratedTracks || isFineTuneOpen) && (
+              <div className="space-y-4 animate-in fade-in duration-300">
+                {/* 1. Category Filter Pills */}
+                <div className="flex items-center justify-between flex-wrap gap-2 pt-1">
+                  <div className="flex items-center gap-1.5 overflow-x-auto max-w-full pb-1">
+                    {(Object.keys(CATEGORY_LABELS) as (IntentCategory | 'all')[]).map((catKey) => {
+                      const isSelected = selectedCategory === catKey;
+                      const catMeta = CATEGORY_LABELS[catKey];
+                      return (
                         <button
-                          key={s}
-                          onClick={() => setWizardStep(s as WizardStep)}
-                          className={`w-7 h-2 rounded-full transition-all ${
-                            s === wizardStep
-                              ? 'bg-spotify w-10'
-                              : s < wizardStep
-                              ? 'bg-emerald-500/60'
-                              : 'bg-zinc-800'
+                          key={catKey}
+                          onClick={() => setSelectedCategory(catKey)}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+                            isSelected
+                              ? 'bg-spotify text-black font-bold shadow-md'
+                              : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700'
                           }`}
-                          title={`Jump to Step ${s}`}
-                        />
-                      ))}
+                        >
+                          {catMeta.icon}
+                          <span>{catMeta.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <span className="text-xs font-mono text-zinc-400 hidden sm:inline">
+                    12 Neuroacoustic Intention Presets
+                  </span>
+                </div>
+
+                {/* 2. Grid of Cognitive Intent Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
+                  {displayedIntents.map((intent) => {
+                    const isSelected = flowIntent === intent.id;
+                    return (
+                      <button
+                        key={intent.id}
+                        onClick={() => {
+                          setFlowIntent(intent.id);
+                        }}
+                        className={`text-left p-4 rounded-xl border transition-all relative group flex flex-col justify-between ${
+                          isSelected
+                            ? 'bg-zinc-900 border-spotify shadow-xl shadow-spotify/15 ring-2 ring-spotify/80 scale-[1.01]'
+                            : 'bg-zinc-900/60 border-zinc-800/80 hover:border-zinc-700 hover:bg-zinc-900/90'
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              {intentIcons[intent.id]}
+                              <span
+                                className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                                  isSelected
+                                    ? 'bg-spotify/20 text-spotify border-spotify/40'
+                                    : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                                }`}
+                              >
+                                {intent.badge}
+                              </span>
+                            </div>
+                            {isSelected && (
+                              <CheckCircle2 className="w-4 h-4 text-spotify" />
+                            )}
+                          </div>
+
+                          <h4 className="text-base font-bold text-white group-hover:text-spotify transition-colors leading-snug">
+                            {intent.name}
+                          </h4>
+
+                          <p className="text-[11.5px] text-zinc-400 mt-1 leading-snug">
+                            {intent.tagline}
+                          </p>
+
+                          <p className="text-[10.5px] text-zinc-500 mt-2 line-clamp-2 italic">
+                            "{intent.musical_objective}"
+                          </p>
+                        </div>
+
+                        <div className="mt-4 pt-2.5 border-t border-zinc-800/60 flex items-center justify-between text-[10.5px] font-mono text-zinc-400">
+                          <span className="text-spotify font-semibold">Preset: {intent.default_duration_mins}m</span>
+                          <span className="text-zinc-500">{intent.phases.length} Phases</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* 3. 1-CLICK EXPRESS ACTION BAR */}
+                <div className="p-4 sm:p-5 rounded-2xl bg-zinc-950/90 border border-zinc-800 shadow-xl backdrop-blur-md flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-spotify/20 border border-spotify/40 flex items-center justify-center text-spotify shrink-0">
+                      <Sparkles className="w-5 h-5" />
                     </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-white">
+                          Selected: {activeIntentConfig.name}
+                        </span>
+                        <span className="text-xs px-2 py-0.2 rounded-full bg-spotify/15 text-spotify font-mono font-bold">
+                          {currentDurationMins}m (~{estimatedTracksCount} tracks)
+                        </span>
+                      </div>
+                      <p className="text-xs text-zinc-400 mt-0.5">
+                        Neuroacoustic sequencing with Camelot harmonic wheel & tempo ratio matching.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2.5 w-full sm:w-auto">
+                    {/* Expand/Collapse Fine-Tune Engine */}
+                    <button
+                      onClick={() => setIsFineTuneOpen(!isFineTuneOpen)}
+                      className={`px-4 py-3 rounded-full text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all border ${
+                        isFineTuneOpen
+                          ? 'bg-zinc-800 text-white border-zinc-700'
+                          : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border-zinc-750'
+                      }`}
+                    >
+                      <SlidersHorizontal className="w-3.5 h-3.5 text-spotify" />
+                      <span>{isFineTuneOpen ? 'Hide Controls' : 'Fine-Tune Engine'}</span>
+                      {isFineTuneOpen ? <ChevronUp className="w-3.5 h-3.5 ml-0.5" /> : <ChevronDown className="w-3.5 h-3.5 ml-0.5" />}
+                    </button>
+
+                    {/* 1-CLICK EXPRESS SYNTHESIS CTA */}
+                    <button
+                      onClick={() => generateFlow()}
+                      disabled={isGenerating}
+                      className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-8 py-3.5 rounded-full font-black text-xs uppercase tracking-wider transition-all duration-200 shadow-xl ${
+                        isGenerating
+                          ? 'bg-zinc-800 text-zinc-400 cursor-not-allowed border border-zinc-700'
+                          : 'bg-spotify hover:bg-spotify-hover text-black hover:scale-105 active:scale-95 shadow-spotify/30 ring-2 ring-spotify/50'
+                      }`}
+                    >
+                      {isGenerating ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin text-black" />
+                          <span>Synthesizing ({status.progress}%)...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4 fill-current" />
+                          <span>Generate Express Flow</span>
+                          <ArrowRight className="w-4 h-4 ml-0.5" />
+                        </>
+                      )}
+                    </button>
                   </div>
                 </div>
 
-                {/* -------------------- STEP 1: CHOOSE YOUR EXPERIENCE -------------------- */}
-                {wizardStep === 1 && (
-                  <div className="bg-zinc-950/85 border border-zinc-800/80 rounded-2xl p-5 sm:p-6 shadow-2xl backdrop-blur-md space-y-5 animate-in fade-in duration-300">
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-3">
-                      <div>
-                        <h3 className="text-lg font-bold text-white">What emotional space do you want to explore?</h3>
-                        <p className="text-xs text-zinc-400 mt-0.5">
-                          Choose an intention to guide pacing, trajectory, and harmonic arcs.
-                        </p>
+                {/* =========================================================================
+                    EXPANDABLE "FINE-TUNE ENGINE"
+                    (Revealed on demand for deep granular control: Genres, Energy, Flow, Voices, Duration)
+                   ========================================================================= */}
+                {isFineTuneOpen && (
+                  <div className="p-5 sm:p-6 rounded-2xl bg-zinc-950/95 border border-zinc-800 shadow-2xl backdrop-blur-md space-y-5 animate-in fade-in slide-in-from-top-2 duration-300">
+                    <div className="border-b border-zinc-800 pb-3 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Sliders className="w-4 h-4 text-spotify" />
+                        <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                          Fine-Tune Engine — Granular Architectural Parameters
+                        </h3>
                       </div>
-
-                      {/* Category Filter Tabs */}
-                      <div className="flex items-center gap-1.5 overflow-x-auto max-w-full pb-1">
-                        {(Object.keys(CATEGORY_LABELS) as (IntentCategory | 'all')[]).map((catKey) => {
-                          const isSelected = selectedCategory === catKey;
-                          const catMeta = CATEGORY_LABELS[catKey];
-                          return (
-                            <button
-                              key={catKey}
-                              onClick={() => setSelectedCategory(catKey)}
-                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
-                                isSelected
-                                  ? 'bg-spotify text-black font-bold shadow-md'
-                                  : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700'
-                              }`}
-                            >
-                              {catMeta.icon}
-                              <span>{catMeta.name}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
+                      <span className="text-xs text-zinc-400 font-mono">
+                        Target Set: <strong className="text-spotify">{currentDurationMins}m</strong>
+                      </span>
                     </div>
 
-                    {/* 12 Presets Grid */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
-                      {displayedIntents.map((intent) => {
-                        const isSelected = flowIntent === intent.id;
-                        return (
-                          <button
-                            key={intent.id}
-                            onClick={() => {
-                              setFlowIntent(intent.id);
-                              setFlowControls({
-                                targetDurationMins: intent.default_duration_mins
-                              });
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {/* Control 1: Sound & Genre Filtering */}
+                      <div className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800/80 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
+                            <Disc3 className="w-3.5 h-3.5 text-spotify" />
+                            <span>Genre Selection Mode</span>
+                          </span>
+                          <span className="text-[11px] font-mono text-spotify font-semibold">
+                            {genreMode === 'surprise' && 'Surprise Me'}
+                            {genreMode === 'prefer' && 'Prefer Selected (+40)'}
+                            {genreMode === 'strict' && 'Strict Lock'}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {[
+                            { id: 'surprise', label: 'Surprise Me' },
+                            { id: 'prefer', label: 'Prefer Genres' },
+                            { id: 'strict', label: 'Strict Only' }
+                          ].map((mode) => (
+                            <button
+                              key={mode.id}
+                              onClick={() => setFlowControls({ genreMode: mode.id as any })}
+                              className={`py-1.5 px-1 rounded-lg text-xs font-bold transition-all ${
+                                genreMode === mode.id
+                                  ? 'bg-spotify text-black shadow-md'
+                                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white'
+                              }`}
+                            >
+                              {mode.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Genre Tags Selection */}
+                        <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pt-1">
+                          {allAvailableGenres.slice(0, 16).map((genre) => {
+                            const isSelected = selectedGenres.includes(genre);
+                            return (
+                              <button
+                                key={genre}
+                                onClick={() => handleToggleGenre(genre)}
+                                className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                                  isSelected
+                                    ? 'bg-spotify text-black font-bold'
+                                    : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                                }`}
+                              >
+                                {genre}
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {/* Custom Genre Tag Input */}
+                        <div className="flex items-center gap-2 pt-1">
+                          <input
+                            type="text"
+                            value={customGenreInput}
+                            onChange={(e) => setCustomGenreInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleAddCustomGenre();
+                              }
                             }}
-                            className={`text-left p-4 rounded-xl border transition-all relative group flex flex-col justify-between ${
-                              isSelected
-                                ? 'bg-zinc-900 border-spotify shadow-xl shadow-spotify/15 ring-2 ring-spotify/80'
-                                : 'bg-zinc-900/60 border-zinc-800/80 hover:border-zinc-700 hover:bg-zinc-900/90'
-                            }`}
-                          >
-                            <div>
-                              <div className="flex items-center justify-between mb-2">
-                                <div className="flex items-center gap-2">
-                                  {intentIcons[intent.id]}
-                                  <span
-                                    className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
-                                      isSelected
-                                        ? 'bg-spotify/20 text-spotify border-spotify/40'
-                                        : 'bg-zinc-800 text-zinc-400 border-zinc-700'
-                                    }`}
-                                  >
-                                    {intent.badge}
-                                  </span>
-                                </div>
-                                {isSelected && (
-                                  <CheckCircle2 className="w-4 h-4 text-spotify" />
-                                )}
-                              </div>
-
-                              <h4 className="text-base font-bold text-white group-hover:text-spotify transition-colors leading-snug">
-                                {intent.name}
-                              </h4>
-
-                              <p className="text-[11.5px] text-zinc-400 mt-1 leading-snug">
-                                {intent.tagline}
-                              </p>
-
-                              <p className="text-[10.5px] text-zinc-500 mt-2 line-clamp-2 italic">
-                                "{intent.musical_objective}"
-                              </p>
-                            </div>
-
-                            <div className="mt-4 pt-2.5 border-t border-zinc-800/60 flex items-center justify-between text-[10.5px] font-mono text-zinc-400">
-                              <span>Default: {intent.default_duration_mins}m</span>
-                              <span className="text-zinc-500">{intent.phases.length} Phases</span>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {/* Step 1 Navigation Bar */}
-                    <div className="flex items-center justify-end pt-4 border-t border-zinc-800/80">
-                      <button
-                        onClick={() => setWizardStep(2)}
-                        className="flex items-center gap-2 px-7 py-3 rounded-full bg-spotify hover:bg-spotify-hover text-black font-extrabold text-xs uppercase tracking-wider transition-all hover:scale-105 active:scale-95 shadow-lg shadow-spotify/25"
-                      >
-                        <span>Continue to Sound</span>
-                        <ArrowRight className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* -------------------- STEP 2: CHOOSE YOUR SOUND (GENRES) -------------------- */}
-                {wizardStep === 2 && (
-                  <div className="bg-zinc-950/85 border border-zinc-800/80 rounded-2xl p-5 sm:p-6 shadow-2xl backdrop-blur-md space-y-5 animate-in fade-in duration-300">
-                    <div className="border-b border-zinc-800/80 pb-3">
-                      <h3 className="text-lg font-bold text-white">Define the sonic palette for your playlist</h3>
-                      <p className="text-xs text-zinc-400 mt-0.5">
-                        Choose how strictly your musical taste guides the track selection from your library.
-                      </p>
-                    </div>
-
-                    {/* 3 Genre Mode Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-                      <button
-                        onClick={() => setFlowControls({ genreMode: 'surprise' })}
-                        className={`text-left p-4 rounded-xl border transition-all ${
-                          genreMode === 'surprise'
-                            ? 'bg-zinc-900 border-spotify shadow-lg ring-1 ring-spotify'
-                            : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs font-bold text-spotify uppercase tracking-wider">
-                            Option A
-                          </span>
-                          {genreMode === 'surprise' && <CheckCircle2 className="w-4 h-4 text-spotify" />}
-                        </div>
-                        <h4 className="text-sm font-bold text-white">Surprise Me</h4>
-                        <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
-                          Draws freely from across all genres in your saved library, creating an eclectic, unpredictable mix.
-                        </p>
-                      </button>
-
-                      <button
-                        onClick={() => setFlowControls({ genreMode: 'prefer' })}
-                        className={`text-left p-4 rounded-xl border transition-all ${
-                          genreMode === 'prefer'
-                            ? 'bg-zinc-900 border-amber-400 shadow-lg ring-1 ring-amber-400'
-                            : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs font-bold text-amber-400 uppercase tracking-wider">
-                            Option B (Recommended)
-                          </span>
-                          {genreMode === 'prefer' && <CheckCircle2 className="w-4 h-4 text-amber-400" />}
-                        </div>
-                        <h4 className="text-sm font-bold text-white">Prefer These Genres</h4>
-                        <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
-                          Gives heavy priority (+40 bonus) to selected genres while blending naturally with complementary tracks.
-                        </p>
-                      </button>
-
-                      <button
-                        onClick={() => setFlowControls({ genreMode: 'strict' })}
-                        className={`text-left p-4 rounded-xl border transition-all ${
-                          genreMode === 'strict'
-                            ? 'bg-zinc-900 border-rose-400 shadow-lg ring-1 ring-rose-400'
-                            : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs font-bold text-rose-400 uppercase tracking-wider">
-                            Option C
-                          </span>
-                          {genreMode === 'strict' && <CheckCircle2 className="w-4 h-4 text-rose-400" />}
-                        </div>
-                        <h4 className="text-sm font-bold text-white">Only These Genres</h4>
-                        <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
-                          Strict filtering: only tracks matching selected genres are allowed. Zero unwanted genres in your flow.
-                        </p>
-                      </button>
-                    </div>
-
-                    {/* Genre Tag Selection */}
-                    <div className="space-y-3 pt-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold uppercase tracking-wider text-zinc-300">
-                          Select Genres ({selectedGenres.length} selected)
-                        </span>
-                        {selectedGenres.length > 0 && (
+                            placeholder="Add tag (e.g. Synthwave, Bossa Nova)..."
+                            className="flex-1 bg-zinc-800 border border-zinc-700 text-white rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-spotify"
+                          />
                           <button
-                            onClick={() => setFlowControls({ selectedGenres: [] })}
-                            className="text-[11px] text-zinc-500 hover:text-white underline"
+                            onClick={handleAddCustomGenre}
+                            disabled={!customGenreInput.trim()}
+                            className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-white text-xs font-bold"
                           >
-                            Clear all
+                            Add
                           </button>
-                        )}
+                        </div>
                       </div>
 
-                      {/* Multi-select Pills */}
-                      <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto p-1">
-                        {allAvailableGenres.map((genre) => {
-                          const isSelected = selectedGenres.includes(genre);
-                          return (
+                      {/* Control 2: Energy & Trajectory Level */}
+                      <div className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800/80 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
+                            <Activity className="w-3.5 h-3.5 text-amber-400" />
+                            <span>Energy & Acoustic Drive</span>
+                          </span>
+                          <span className="text-[11px] font-mono text-amber-400 font-semibold capitalize">
+                            {flowControls.intensity || 'balanced'}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {[
+                            { id: 'calm', label: 'Calm (-15%)' },
+                            { id: 'balanced', label: 'Balanced' },
+                            { id: 'intense', label: 'Intense (+15%)' }
+                          ].map((item) => (
                             <button
-                              key={genre}
-                              onClick={() => handleToggleGenre(genre)}
-                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                                isSelected
-                                  ? 'bg-spotify text-black font-bold shadow-md shadow-spotify/20'
-                                  : 'bg-zinc-800/80 border border-zinc-700/80 text-zinc-300 hover:text-white hover:border-zinc-600'
+                              key={item.id}
+                              onClick={() => setFlowControls({ intensity: item.id as any })}
+                              className={`py-2 px-1 rounded-lg text-xs font-bold transition-all ${
+                                (flowControls.intensity || 'balanced') === item.id
+                                  ? 'bg-amber-400 text-black shadow-md'
+                                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white'
                               }`}
                             >
-                              {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
-                              <span>{genre}</span>
+                              {item.label}
                             </button>
-                          );
-                        })}
-                      </div>
+                          ))}
+                        </div>
 
-                      {/* Custom Genre Input */}
-                      <div className="flex items-center gap-2 max-w-md pt-1">
-                        <input
-                          type="text"
-                          value={customGenreInput}
-                          onChange={(e) => setCustomGenreInput(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              handleAddCustomGenre();
-                            }
-                          }}
-                          placeholder="Add custom genre tag (e.g. Synthwave, Bossa Nova, Ska)..."
-                          className="flex-1 bg-zinc-900 border border-zinc-700 text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-spotify"
-                        />
-                        <button
-                          onClick={handleAddCustomGenre}
-                          disabled={!customGenreInput.trim()}
-                          className="px-3.5 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-white text-xs font-bold transition-colors"
-                        >
-                          Add
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Step 2 Navigation Bar */}
-                    <div className="flex items-center justify-between pt-4 border-t border-zinc-800/80">
-                      <button
-                        onClick={() => setWizardStep(1)}
-                        className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white font-bold text-xs uppercase tracking-wider transition-all"
-                      >
-                        <ArrowLeft className="w-4 h-4" />
-                        <span>Back</span>
-                      </button>
-
-                      <button
-                        onClick={() => setWizardStep(3)}
-                        className="flex items-center gap-2 px-7 py-3 rounded-full bg-spotify hover:bg-spotify-hover text-black font-extrabold text-xs uppercase tracking-wider transition-all hover:scale-105 active:scale-95 shadow-lg shadow-spotify/25"
-                      >
-                        <span>Continue to Energy</span>
-                        <ArrowRight className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* -------------------- STEP 3: SHAPE YOUR ENERGY -------------------- */}
-                {wizardStep === 3 && (
-                  <div className="bg-zinc-950/85 border border-zinc-800/80 rounded-2xl p-5 sm:p-6 shadow-2xl backdrop-blur-md space-y-5 animate-in fade-in duration-300">
-                    <div className="border-b border-zinc-800/80 pb-3">
-                      <h3 className="text-lg font-bold text-white">How intense should this journey feel?</h3>
-                      <p className="text-xs text-zinc-400 mt-0.5">
-                        Calibrate the baseline energy trajectory and acoustic drive.
-                      </p>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {[
-                        {
-                          id: 'calm',
-                          label: 'Calm',
-                          tagline: 'Subdued & Peaceful (-15% Energy)',
-                          desc: 'Keeps acoustic energy low and steady. Avoids harsh drops or intense peaks, fostering tranquility or deep reading.',
-                          color: 'text-cyan-400',
-                          border: 'border-cyan-500/40'
-                        },
-                        {
-                          id: 'balanced',
-                          label: 'Balanced',
-                          tagline: 'Natural Ebb & Flow',
-                          desc: 'Maintains authentic dynamic range and organic musical crests matching the native character of your saved tracks.',
-                          color: 'text-amber-400',
-                          border: 'border-amber-500/40'
-                        },
-                        {
-                          id: 'intense',
-                          label: 'Intense',
-                          tagline: 'Driving & High-Voltage (+15% Energy)',
-                          desc: 'Pushes high-octane rhythms and soaring climaxes. Ideal for workouts, high-focus bursts, and peak festival vibes.',
-                          color: 'text-rose-400',
-                          border: 'border-rose-500/40'
-                        }
-                      ].map((item) => {
-                        const isSelected = (flowControls.intensity || 'balanced') === item.id;
-                        return (
-                          <button
-                            key={item.id}
-                            onClick={() => setFlowControls({ intensity: item.id as any })}
-                            className={`text-left p-5 rounded-xl border transition-all ${
-                              isSelected
-                                ? `bg-zinc-900 ${item.border} shadow-xl ring-2 ring-current ${item.color}`
-                                : 'bg-zinc-900/60 border-zinc-800 hover:border-zinc-700'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between mb-3">
-                              <span className={`text-xs font-black uppercase tracking-wider ${item.color}`}>
-                                {item.label}
-                              </span>
-                              {isSelected && <CheckCircle2 className="w-5 h-5" />}
-                            </div>
-                            <h4 className="text-sm font-bold text-white">{item.tagline}</h4>
-                            <p className="text-xs text-zinc-400 mt-2 leading-relaxed">{item.desc}</p>
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {/* Step 3 Navigation Bar */}
-                    <div className="flex items-center justify-between pt-4 border-t border-zinc-800/80">
-                      <button
-                        onClick={() => setWizardStep(2)}
-                        className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white font-bold text-xs uppercase tracking-wider transition-all"
-                      >
-                        <ArrowLeft className="w-4 h-4" />
-                        <span>Back</span>
-                      </button>
-
-                      <button
-                        onClick={() => setWizardStep(4)}
-                        className="flex items-center gap-2 px-7 py-3 rounded-full bg-spotify hover:bg-spotify-hover text-black font-extrabold text-xs uppercase tracking-wider transition-all hover:scale-105 active:scale-95 shadow-lg shadow-spotify/25"
-                      >
-                        <span>Continue to Flow</span>
-                        <ArrowRight className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* -------------------- STEP 4: DEFINE YOUR FLOW (TRANSITIONS) -------------------- */}
-                {wizardStep === 4 && (
-                  <div className="bg-zinc-950/85 border border-zinc-800/80 rounded-2xl p-5 sm:p-6 shadow-2xl backdrop-blur-md space-y-5 animate-in fade-in duration-300">
-                    <div className="border-b border-zinc-800/80 pb-3">
-                      <h3 className="text-lg font-bold text-white">How should tracks connect and transition?</h3>
-                      <p className="text-xs text-zinc-400 mt-0.5">
-                        Controls tempo tolerance windows (BPM) and harmonic continuity between consecutive songs.
-                      </p>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {[
-                        {
-                          id: 'smooth',
-                          label: 'Smooth Transition',
-                          tagline: 'Strict Tempo Lock (±3 BPM)',
-                          desc: 'Tight BPM continuity and gentle valence shifts. Minimizes jarring jumps to protect cognitive focus.',
-                          color: 'text-emerald-400'
-                        },
-                        {
-                          id: 'natural',
-                          label: 'Natural Transition',
-                          tagline: 'Organic Pacing (±8 BPM)',
-                          desc: 'Flowing, comfortable transitions that allow reasonable tempo movement without losing the overall groove.',
-                          color: 'text-cyan-400'
-                        },
-                        {
-                          id: 'dynamic',
-                          label: 'Dynamic Transition',
-                          tagline: 'Contrast & Variety (±16 BPM)',
-                          desc: 'Permits exciting energy jumps, dramatic tempo shifts, and bold drops for adventurous listening.',
-                          color: 'text-violet-400'
-                        }
-                      ].map((item) => {
-                        const isSelected = (flowControls.transitionStyle || 'natural') === item.id;
-                        return (
-                          <button
-                            key={item.id}
-                            onClick={() => setFlowControls({ transitionStyle: item.id as any })}
-                            className={`text-left p-5 rounded-xl border transition-all ${
-                              isSelected
-                                ? `bg-zinc-900 border-spotify shadow-xl ring-2 ring-spotify`
-                                : 'bg-zinc-900/60 border-zinc-800 hover:border-zinc-700'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between mb-3">
-                              <span className={`text-xs font-black uppercase tracking-wider ${item.color}`}>
-                                {item.label}
-                              </span>
-                              {isSelected && <CheckCircle2 className="w-5 h-5 text-spotify" />}
-                            </div>
-                            <h4 className="text-sm font-bold text-white">{item.tagline}</h4>
-                            <p className="text-xs text-zinc-400 mt-2 leading-relaxed">{item.desc}</p>
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {/* Step 4 Navigation Bar */}
-                    <div className="flex items-center justify-between pt-4 border-t border-zinc-800/80">
-                      <button
-                        onClick={() => setWizardStep(3)}
-                        className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white font-bold text-xs uppercase tracking-wider transition-all"
-                      >
-                        <ArrowLeft className="w-4 h-4" />
-                        <span>Back</span>
-                      </button>
-
-                      <button
-                        onClick={() => setWizardStep(5)}
-                        className="flex items-center gap-2 px-7 py-3 rounded-full bg-spotify hover:bg-spotify-hover text-black font-extrabold text-xs uppercase tracking-wider transition-all hover:scale-105 active:scale-95 shadow-lg shadow-spotify/25"
-                      >
-                        <span>Continue to Voices</span>
-                        <ArrowRight className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* -------------------- STEP 5: CHOOSE THE VOICES -------------------- */}
-                {wizardStep === 5 && (
-                  <div className="bg-zinc-950/85 border border-zinc-800/80 rounded-2xl p-5 sm:p-6 shadow-2xl backdrop-blur-md space-y-5 animate-in fade-in duration-300">
-                    <div className="border-b border-zinc-800/80 pb-3">
-                      <h3 className="text-lg font-bold text-white">What vocal presence fits your session?</h3>
-                      <p className="text-xs text-zinc-400 mt-0.5">
-                        Filter songs by lyrical content to minimize distraction or amplify vocal melodies.
-                      </p>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {[
-                        {
-                          id: 'instrumental',
-                          label: 'Mostly Instrumental',
-                          tagline: 'Zero Vocal Distraction',
-                          desc: 'Prioritizes beats, synthesizers, acoustic guitars, and ambient arrangements with minimal or no singing.',
-                          color: 'text-indigo-400'
-                        },
-                        {
-                          id: 'mixed',
-                          label: 'Mixed',
-                          tagline: 'Balanced Blend',
-                          desc: 'A versatile combination of vocal anthems and instrumental grooves across the playlist progression.',
-                          color: 'text-amber-400'
-                        },
-                        {
-                          id: 'welcome',
-                          label: 'Vocals Welcome',
-                          tagline: 'Lyrical & Song-Driven',
-                          desc: 'Emphasizes vocals, lead singers, hooks, and narrative tracks for immersive listening and sing-alongs.',
-                          color: 'text-rose-400'
-                        }
-                      ].map((item) => {
-                        const isSelected = (flowControls.vocals || 'mixed') === item.id;
-                        return (
-                          <button
-                            key={item.id}
-                            onClick={() => setFlowControls({ vocals: item.id as any })}
-                            className={`text-left p-5 rounded-xl border transition-all ${
-                              isSelected
-                                ? `bg-zinc-900 border-spotify shadow-xl ring-2 ring-spotify`
-                                : 'bg-zinc-900/60 border-zinc-800 hover:border-zinc-700'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between mb-3">
-                              <span className={`text-xs font-black uppercase tracking-wider ${item.color}`}>
-                                {item.label}
-                              </span>
-                              {isSelected && <CheckCircle2 className="w-5 h-5 text-spotify" />}
-                            </div>
-                            <h4 className="text-sm font-bold text-white">{item.tagline}</h4>
-                            <p className="text-xs text-zinc-400 mt-2 leading-relaxed">{item.desc}</p>
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {/* Step 5 Navigation Bar */}
-                    <div className="flex items-center justify-between pt-4 border-t border-zinc-800/80">
-                      <button
-                        onClick={() => setWizardStep(4)}
-                        className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white font-bold text-xs uppercase tracking-wider transition-all"
-                      >
-                        <ArrowLeft className="w-4 h-4" />
-                        <span>Back</span>
-                      </button>
-
-                      <button
-                        onClick={() => setWizardStep(6)}
-                        className="flex items-center gap-2 px-7 py-3 rounded-full bg-spotify hover:bg-spotify-hover text-black font-extrabold text-xs uppercase tracking-wider transition-all hover:scale-105 active:scale-95 shadow-lg shadow-spotify/25"
-                      >
-                        <span>Continue to Duration</span>
-                        <ArrowRight className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* -------------------- STEP 6: SET THE DURATION -------------------- */}
-                {wizardStep === 6 && (
-                  <div className="bg-zinc-950/85 border border-zinc-800/80 rounded-2xl p-5 sm:p-6 shadow-2xl backdrop-blur-md space-y-5 animate-in fade-in duration-300">
-                    <div className="border-b border-zinc-800/80 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <div>
-                        <h3 className="text-lg font-bold text-white">How long should this flow last?</h3>
-                        <p className="text-xs text-zinc-400 mt-0.5">
-                          WaveFlow precisely packs tracks to achieve your target duration within ±5% compliance.
-                        </p>
-                      </div>
-                      <div className="text-xs font-mono text-spotify font-bold">
-                        Target: {currentDurationMins}m (~{estimatedTracksCount} tracks)
-                      </div>
-                    </div>
-
-                    {/* Duration Chips */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5">
-                      {[30, 45, 60, 75, 90, 120, 180].map((mins) => {
-                        const isSelected = currentDurationMins === mins;
-                        return (
-                          <button
-                            key={mins}
-                            onClick={() => setFlowControls({ targetDurationMins: mins })}
-                            className={`p-3.5 rounded-xl border flex flex-col items-center justify-center transition-all ${
-                              isSelected
-                                ? 'bg-spotify text-black border-spotify font-bold shadow-lg shadow-spotify/20 scale-105'
-                                : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:border-zinc-700 hover:text-white'
-                            }`}
-                          >
-                            <span className="text-base font-black font-mono">{mins}m</span>
-                            <span className="text-[10.5px] opacity-80 mt-0.5">
-                              ~{Math.round(mins / 3.5)} tracks
+                        {/* Transition Style */}
+                        <div className="pt-2 border-t border-zinc-800/80">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
+                              <Zap className="w-3.5 h-3.5 text-cyan-400" />
+                              <span>Transition Dynamics (Camelot & BPM)</span>
                             </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {/* Contextual Fine-Tuning Module (if applicable to selected intent) */}
-                    {flowIntent === 'mood_shift' && (
-                      <div className="p-4 rounded-xl bg-pink-950/30 border border-pink-500/30 space-y-3">
-                        <span className="text-xs font-bold text-pink-300 uppercase tracking-wider block">
-                          Mood Shift Trajectory Planner
-                        </span>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                          <div>
-                            <span className="text-zinc-400 block mb-1.5">Where you are now:</span>
-                            <div className="grid grid-cols-3 gap-1">
-                              {(['calm', 'neutral', 'tired', 'restless', 'low', 'energized'] as const).map((m) => (
-                                <button
-                                  key={m}
-                                  onClick={() => setFlowControls({ moodShiftCurrent: m })}
-                                  className={`py-1 rounded text-xs capitalize ${
-                                    flowControls.moodShiftCurrent === m
-                                      ? 'bg-pink-500 text-white font-bold'
-                                      : 'bg-zinc-800 text-zinc-300'
-                                  }`}
-                                >
-                                  {m}
-                                </button>
-                              ))}
-                            </div>
+                            <span className="text-[11px] font-mono text-cyan-400 font-semibold capitalize">
+                              {flowControls.transitionStyle || 'natural'}
+                            </span>
                           </div>
 
-                          <div>
-                            <span className="text-zinc-400 block mb-1.5">Where you want to be:</span>
-                            <div className="grid grid-cols-3 gap-1">
-                              {(['relaxed', 'focused', 'uplifted', 'motivated', 'energized', 'reflective'] as const).map((t) => (
-                                <button
-                                  key={t}
-                                  onClick={() => setFlowControls({ moodShiftTarget: t })}
-                                  className={`py-1 rounded text-xs capitalize ${
-                                    flowControls.moodShiftTarget === t
-                                      ? 'bg-emerald-500 text-black font-bold'
-                                      : 'bg-zinc-800 text-zinc-300'
-                                  }`}
-                                >
-                                  {t}
-                                </button>
-                              ))}
-                            </div>
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {[
+                              { id: 'smooth', label: 'Smooth (≤3 BPM)' },
+                              { id: 'natural', label: 'Natural (±8 BPM)' },
+                              { id: 'dynamic', label: 'Dynamic (±16 BPM)' }
+                            ].map((style) => (
+                              <button
+                                key={style.id}
+                                onClick={() => setFlowControls({ transitionStyle: style.id as any })}
+                                className={`py-1.5 px-1 rounded-lg text-xs font-bold transition-all ${
+                                  (flowControls.transitionStyle || 'natural') === style.id
+                                    ? 'bg-cyan-400 text-black shadow-md'
+                                    : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white'
+                                }`}
+                              >
+                                {style.label}
+                              </button>
+                            ))}
                           </div>
                         </div>
                       </div>
-                    )}
 
-                    {/* Step 6 Navigation Bar */}
-                    <div className="flex items-center justify-between pt-4 border-t border-zinc-800/80">
-                      <button
-                        onClick={() => setWizardStep(5)}
-                        className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white font-bold text-xs uppercase tracking-wider transition-all"
-                      >
-                        <ArrowLeft className="w-4 h-4" />
-                        <span>Back</span>
-                      </button>
-
-                      <button
-                        onClick={() => setWizardStep(7)}
-                        className="flex items-center gap-2 px-7 py-3 rounded-full bg-spotify hover:bg-spotify-hover text-black font-extrabold text-xs uppercase tracking-wider transition-all hover:scale-105 active:scale-95 shadow-lg shadow-spotify/25"
-                      >
-                        <span>Review Your Journey</span>
-                        <ArrowRight className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* -------------------- STEP 7: REVIEW YOUR JOURNEY -------------------- */}
-                {wizardStep === 7 && (
-                  <div className="bg-zinc-950/85 border border-zinc-800/80 rounded-2xl p-5 sm:p-6 shadow-2xl backdrop-blur-md space-y-6 animate-in fade-in duration-300">
-                    <div className="border-b border-zinc-800/80 pb-3">
-                      <h3 className="text-xl font-black text-white">Review Your Journey</h3>
-                      <p className="text-xs text-zinc-400 mt-0.5">
-                        Your choices calibrate the neuroscience arc, track selection, and transition physics.
-                      </p>
-                    </div>
-
-                    {/* Summary Matrix of 6 Choices */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                      {/* 1. Experience */}
-                      <div className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800 flex flex-col justify-between">
-                        <div>
-                          <div className="flex items-center justify-between mb-1.5">
-                            <span className="text-[10.5px] font-bold uppercase tracking-wider text-zinc-400">
-                              1. Experience
-                            </span>
-                            <button
-                              onClick={() => setWizardStep(1)}
-                              className="text-[11px] text-spotify hover:underline font-semibold"
-                            >
-                              Edit
-                            </button>
-                          </div>
-                          <h4 className="text-base font-bold text-white">{activeIntentConfig.name}</h4>
-                          <p className="text-xs text-zinc-400 mt-1">{activeIntentConfig.tagline}</p>
-                        </div>
-                        <span className="text-[10px] font-mono text-zinc-500 mt-3 block">
-                          {activeIntentConfig.badge}
-                        </span>
-                      </div>
-
-                      {/* 2. Sound / Genres */}
-                      <div className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800 flex flex-col justify-between">
-                        <div>
-                          <div className="flex items-center justify-between mb-1.5">
-                            <span className="text-[10.5px] font-bold uppercase tracking-wider text-zinc-400">
-                              2. Sound & Genres
-                            </span>
-                            <button
-                              onClick={() => setWizardStep(2)}
-                              className="text-[11px] text-spotify hover:underline font-semibold"
-                            >
-                              Edit
-                            </button>
-                          </div>
-                          <h4 className="text-base font-bold text-white capitalize">
-                            {genreMode === 'surprise' && 'Surprise Me (All Genres)'}
-                            {genreMode === 'prefer' && 'Prefer Selected Genres'}
-                            {genreMode === 'strict' && 'Strict Genre Lock'}
-                          </h4>
-                          <p className="text-xs text-zinc-400 mt-1 truncate">
-                            {selectedGenres.length > 0
-                              ? selectedGenres.join(', ')
-                              : 'Drawing from all library styles'}
-                          </p>
-                        </div>
-                        <span className="text-[10px] font-mono text-zinc-500 mt-3 block">
-                          {selectedGenres.length} tags specified
-                        </span>
-                      </div>
-
-                      {/* 3. Energy */}
-                      <div className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800 flex flex-col justify-between">
-                        <div>
-                          <div className="flex items-center justify-between mb-1.5">
-                            <span className="text-[10.5px] font-bold uppercase tracking-wider text-zinc-400">
-                              3. Energy Level
-                            </span>
-                            <button
-                              onClick={() => setWizardStep(3)}
-                              className="text-[11px] text-spotify hover:underline font-semibold"
-                            >
-                              Edit
-                            </button>
-                          </div>
-                          <h4 className="text-base font-bold text-white capitalize">
-                            {flowControls.intensity || 'balanced'}
-                          </h4>
-                          <p className="text-xs text-zinc-400 mt-1">
-                            {flowControls.intensity === 'calm' && 'Subdued, peaceful low intensity'}
-                            {flowControls.intensity === 'intense' && 'Driving, high-voltage momentum'}
-                            {(!flowControls.intensity || flowControls.intensity === 'balanced') &&
-                              'Natural dynamic ebb and flow'}
-                          </p>
-                        </div>
-                        <span className="text-[10px] font-mono text-zinc-500 mt-3 block">
-                          Calibrated trajectory
-                        </span>
-                      </div>
-
-                      {/* 4. Flow */}
-                      <div className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800 flex flex-col justify-between">
-                        <div>
-                          <div className="flex items-center justify-between mb-1.5">
-                            <span className="text-[10.5px] font-bold uppercase tracking-wider text-zinc-400">
-                              4. Transition Style
-                            </span>
-                            <button
-                              onClick={() => setWizardStep(4)}
-                              className="text-[11px] text-spotify hover:underline font-semibold"
-                            >
-                              Edit
-                            </button>
-                          </div>
-                          <h4 className="text-base font-bold text-white capitalize">
-                            {flowControls.transitionStyle || 'natural'}
-                          </h4>
-                          <p className="text-xs text-zinc-400 mt-1">
-                            {flowControls.transitionStyle === 'smooth' && 'Strict BPM delta (≤3 BPM)'}
-                            {flowControls.transitionStyle === 'dynamic' && 'Contrast jumps (±16 BPM)'}
-                            {(!flowControls.transitionStyle ||
-                              flowControls.transitionStyle === 'natural') &&
-                              'Flowing pacing (±8 BPM)'}
-                          </p>
-                        </div>
-                        <span className="text-[10px] font-mono text-zinc-500 mt-3 block">
-                          Harmonic cadence
-                        </span>
-                      </div>
-
-                      {/* 5. Voices */}
-                      <div className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800 flex flex-col justify-between">
-                        <div>
-                          <div className="flex items-center justify-between mb-1.5">
-                            <span className="text-[10.5px] font-bold uppercase tracking-wider text-zinc-400">
-                              5. Vocal Presence
-                            </span>
-                            <button
-                              onClick={() => setWizardStep(5)}
-                              className="text-[11px] text-spotify hover:underline font-semibold"
-                            >
-                              Edit
-                            </button>
-                          </div>
-                          <h4 className="text-base font-bold text-white capitalize">
+                      {/* Control 3: Voice Presence */}
+                      <div className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800/80 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
+                            <Volume2 className="w-3.5 h-3.5 text-rose-400" />
+                            <span>Vocal Presence & Lyrical Focus</span>
+                          </span>
+                          <span className="text-[11px] font-mono text-rose-400 font-semibold capitalize">
                             {flowControls.vocals || 'mixed'}
-                          </h4>
-                          <p className="text-xs text-zinc-400 mt-1">
-                            {flowControls.vocals === 'instrumental' && 'Minimal vocal distraction'}
-                            {flowControls.vocals === 'welcome' && 'Vocal-forward lyrical focus'}
-                            {(!flowControls.vocals || flowControls.vocals === 'mixed') &&
-                              'Balanced instrumental & vocal mix'}
-                          </p>
+                          </span>
                         </div>
-                        <span className="text-[10px] font-mono text-zinc-500 mt-3 block">
-                          Cognitive filter
-                        </span>
+
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {[
+                            { id: 'instrumental', label: 'Instrumental' },
+                            { id: 'mixed', label: 'Mixed' },
+                            { id: 'welcome', label: 'Vocals Welcome' }
+                          ].map((voc) => (
+                            <button
+                              key={voc.id}
+                              onClick={() => setFlowControls({ vocals: voc.id as any })}
+                              className={`py-1.5 px-1 rounded-lg text-xs font-bold transition-all ${
+                                (flowControls.vocals || 'mixed') === voc.id
+                                  ? 'bg-rose-400 text-black shadow-md'
+                                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white'
+                              }`}
+                            >
+                              {voc.label}
+                            </button>
+                          ))}
+                        </div>
                       </div>
 
-                      {/* 6. Duration */}
-                      <div className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800 flex flex-col justify-between">
-                        <div>
-                          <div className="flex items-center justify-between mb-1.5">
-                            <span className="text-[10.5px] font-bold uppercase tracking-wider text-zinc-400">
-                              6. Target Duration
-                            </span>
-                            <button
-                              onClick={() => setWizardStep(6)}
-                              className="text-[11px] text-spotify hover:underline font-semibold"
-                            >
-                              Edit
-                            </button>
-                          </div>
-                          <h4 className="text-base font-bold text-spotify font-mono">
+                      {/* Control 4: Set Duration Chips */}
+                      <div className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800/80 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
+                            <Clock className="w-3.5 h-3.5 text-spotify" />
+                            <span>Set Duration Packing (±5% compliance)</span>
+                          </span>
+                          <span className="text-[11px] font-mono text-spotify font-bold">
                             {currentDurationMins} Minutes
-                          </h4>
-                          <p className="text-xs text-zinc-400 mt-1">
-                            Packing approximately {estimatedTracksCount} tracks
-                          </p>
+                          </span>
                         </div>
-                        <span className="text-[10px] font-mono text-zinc-500 mt-3 block">
-                          ±5% strict duration compliance
-                        </span>
+
+                        <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
+                          {[30, 45, 60, 75, 90, 120, 180].map((dur) => (
+                            <button
+                              key={dur}
+                              onClick={() => setFlowControls({ targetDurationMins: dur })}
+                              className={`py-1.5 rounded-lg text-xs font-mono font-bold transition-all ${
+                                currentDurationMins === dur
+                                  ? 'bg-spotify text-black shadow-md'
+                                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white'
+                              }`}
+                            >
+                              {dur}m
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     </div>
 
-                    {/* Step 7 Creation Action Bar */}
-                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-zinc-800/80">
-                      <button
-                        onClick={() => setWizardStep(6)}
-                        className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white font-bold text-xs uppercase tracking-wider transition-all"
-                      >
-                        <ArrowLeft className="w-4 h-4" />
-                        <span>Back</span>
-                      </button>
-
-                      {/* PRIMARY SYNTHESIS CTA BUTTON */}
+                    {/* Action button inside Fine-Tune Engine */}
+                    <div className="flex items-center justify-end pt-2">
                       <button
                         onClick={() => generateFlow()}
                         disabled={isGenerating}
-                        className={`w-full sm:w-auto flex items-center justify-center gap-2.5 px-9 py-4 rounded-full font-black text-sm tracking-wide transition-all duration-200 shadow-2xl ${
-                          isGenerating
-                            ? 'bg-zinc-800 text-zinc-400 cursor-not-allowed border border-zinc-700'
-                            : 'bg-spotify hover:bg-spotify-hover text-black hover:scale-105 active:scale-95 shadow-spotify/40 ring-2 ring-spotify/50'
-                        }`}
+                        className="px-7 py-3 rounded-full bg-spotify hover:bg-spotify-hover text-black font-black text-xs uppercase tracking-wider transition-all shadow-lg hover:scale-105 active:scale-95 shadow-spotify/25 flex items-center gap-2"
                       >
-                        {isGenerating ? (
-                          <>
-                            <Loader2 className="w-5 h-5 animate-spin text-black" />
-                            <span>Synthesizing ({status.progress}%)...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles className="w-5 h-5 fill-current" />
-                            <span>Create My Playlist</span>
-                            <ArrowRight className="w-5 h-5 ml-0.5" />
-                          </>
-                        )}
+                        <Sparkles className="w-4 h-4 fill-current" />
+                        <span>Generate Custom Flow ({currentDurationMins}m)</span>
                       </button>
                     </div>
                   </div>
                 )}
               </div>
-            ) : (
-              /* =========================================================================
-                  PART B: FINAL SCREEN (YOUR PLAYLIST)
-                  Visible when !isCreationWizardActive && hasGeneratedTracks
-                 ========================================================================= */
+            )}
+
+            {/* =========================================================================
+                PART B: FINAL SCREEN (YOUR PLAYLIST)
+                (Visible when hasGeneratedTracks)
+               ========================================================================= */}
+            {hasGeneratedTracks && (
               <div className="space-y-6 animate-in fade-in duration-300">
                 {/* 1. Strict Warning Banner (if library pool had limited matching tracks) */}
                 {flowResult?.strictWarning && (
@@ -1307,16 +830,6 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
                           <RotateCw className="w-3.5 h-3.5" />
                           <span>Regenerate</span>
                         </button>
-
-                        {/* Edit Flow */}
-                        <button
-                          onClick={() => editMyFlow(7)}
-                          className="flex items-center gap-1.5 px-4 py-3 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white font-bold text-xs uppercase tracking-wider border border-zinc-700 transition-all hover:scale-105"
-                          title="Review or adjust parameters in wizard"
-                        >
-                          <Sliders className="w-3.5 h-3.5" />
-                          <span>Edit My Flow</span>
-                        </button>
                       </div>
                     </div>
 
@@ -1366,7 +879,7 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
                           {flowControls.transitionStyle || 'natural'}
                         </span>
                         <span className="text-[10px] text-zinc-500 block">
-                          Harmonic cadence
+                          Camelot & BPM locked
                         </span>
                       </div>
 
@@ -1432,7 +945,7 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
                       <span>Music Journey</span>
                     </button>
 
-                    {/* TAB 3: INSIGHTS & SATISFACTION */}
+                    {/* TAB 3: INSIGHTS & REFINEMENT */}
                     <button
                       onClick={() => setActiveResultTab('insights')}
                       className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-xs font-bold uppercase tracking-wider transition-all ${
@@ -1442,7 +955,7 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
                       }`}
                     >
                       <SlidersHorizontal className="w-4 h-4" />
-                      <span>Insights & Refine</span>
+                      <span>Insights & Metrics</span>
                     </button>
                   </div>
                 </div>
@@ -1496,7 +1009,7 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
                       </div>
                     </div>
 
-                    {/* Spotify Sequenced Tracklist */}
+                    {/* Spotify Sequenced Tracklist with In-Line Swapping & Camelot Keys */}
                     <div className="bg-zinc-950/70 rounded-2xl border border-zinc-800/80 p-2 shadow-2xl backdrop-blur-md">
                       <TracklistTable
                         tracks={flowTracks}
@@ -1513,9 +1026,9 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
                   <div className="space-y-4">
                     <div className="bg-zinc-950/70 rounded-2xl border border-zinc-800/80 p-5 shadow-2xl backdrop-blur-md">
                       <div className="mb-4">
-                        <h3 className="text-base font-bold text-white">Neuroscience Energy Arc</h3>
+                        <h3 className="text-base font-bold text-white">Neuroacoustic Energy Arc</h3>
                         <p className="text-xs text-zinc-400 mt-0.5">
-                          Visual trajectory showing energy progression, harmonic transitions, and phase climaxes.
+                          Visual trajectory showing energy progression, Camelot harmonic modulations, and phase climaxes.
                         </p>
                       </div>
 
@@ -1531,7 +1044,7 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
                   </div>
                 )}
 
-                {/* TAB CONTENT 3: INSIGHTS & REFINEMENT */}
+                {/* TAB CONTENT 3: INSIGHTS & METRICS */}
                 {activeResultTab === 'insights' && (
                   <div className="space-y-5">
                     {/* Key Metrics Cards */}
@@ -1565,7 +1078,7 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
                         <div className="text-2xl font-black text-emerald-400 mt-0.5 font-mono">
                           {avgEnergy}%
                         </div>
-                        <span className="text-[10px] text-zinc-500">Smooth valence alignment</span>
+                        <span className="text-[10px] text-zinc-500">Harmonic alignment</span>
                       </div>
 
                       <div className="bg-zinc-950/70 border border-zinc-800/80 rounded-xl p-3.5 backdrop-blur-sm">
@@ -1579,7 +1092,7 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
                       </div>
                     </div>
 
-                    {/* Satisfaction Question & Actions */}
+                    {/* Satisfaction Confirmation */}
                     <div className="bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-5 shadow-xl">
                       {flowFeedback === 'confirmed' ? (
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl bg-emerald-950/30 border border-emerald-500/40 animate-in fade-in duration-300">
@@ -1593,12 +1106,6 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
                             </div>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
-                            <button
-                              onClick={() => editMyFlow(7)}
-                              className="text-xs text-zinc-400 hover:text-white underline px-3 py-1.5 transition-colors"
-                            >
-                              Edit Parameters
-                            </button>
                             <button
                               onClick={exportToSpotify}
                               disabled={isExporting}
@@ -1615,7 +1122,7 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
                               <span>Is this the flow you imagined?</span>
                             </h3>
                             <p className="text-xs text-zinc-400 mt-0.5">
-                              Listen to the set, explore the energy wave, or adjust any parameter to match your vision.
+                              Listen to the set, swap any individual track in-place, or adjust parameters.
                             </p>
                           </div>
 
@@ -1626,14 +1133,6 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
                             >
                               <Check className="w-4 h-4 stroke-[3]" />
                               <span>Yes, this is my Flow</span>
-                            </button>
-
-                            <button
-                              onClick={() => editMyFlow(7)}
-                              className="flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white font-bold text-xs uppercase tracking-wider transition-all border border-zinc-700"
-                            >
-                              <Sliders className="w-3.5 h-3.5" />
-                              <span>Adjust Parameters</span>
                             </button>
                           </div>
                         </div>
@@ -1652,13 +1151,13 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-2 border-b border-zinc-800/80">
               <div>
                 <h1 className="text-2xl md:text-3xl font-black text-white flex items-center gap-2">
-                  <span>Persistent Liked Library</span>
+                  <span>Local-First Liked Library</span>
                   <span className="text-xs px-2.5 py-0.5 rounded-full bg-spotify/15 text-spotify border border-spotify/30 font-mono font-normal">
-                    {likedTracks.length} songs cached
+                    {likedTracks.length} songs cached in IndexedDB
                   </span>
                 </h1>
                 <p className="text-xs text-zinc-400 mt-1">
-                  Your songs are permanently cached locally with pre-computed acoustic vectors (Energy, Valence, BPM, Vocals).
+                  Cached in browser IndexedDB (<code>waveflow_db</code>) with pre-computed acoustic vectors (BPM, Camelot Key, Energy, Valence).
                 </p>
               </div>
 
@@ -1680,17 +1179,18 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search tracks or artists in your library..."
+                placeholder="Search tracks, artists or Camelot keys..."
                 className="w-full bg-zinc-950/80 border border-zinc-800 rounded-xl pl-10 pr-4 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-spotify transition-colors"
               />
             </div>
 
-            {/* Library Table */}
+            {/* Library Table with Camelot Keys */}
             <div className="bg-zinc-950/60 rounded-2xl border border-zinc-800/70 p-2 shadow-2xl backdrop-blur-md">
               <TracklistTable
                 tracks={filteredLibrary}
                 activeTrackId={activeTrack?.id}
                 onSelectTrack={setActiveTrack}
+                isLibraryView={true}
               />
             </div>
           </div>
@@ -1711,9 +1211,9 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
             </div>
 
             <p className="text-xs text-zinc-300 leading-relaxed">
-              Starting a new flow will reset your wizard configuration back to Step 1 and clear current unexported set results.
+              Starting a new flow will reset your workspace and clear current unexported set results.
               <br /><br />
-              Your synchronized Spotify library (<strong className="text-white">{likedTracks.length} saved songs</strong>) and Spotify account connection will remain ready.
+              Your synchronized Spotify library (<strong className="text-white">{likedTracks.length} saved songs in IndexedDB</strong>) and Spotify connection will remain active and ready.
             </p>
 
             <div className="flex items-center justify-end gap-3 pt-3 border-t border-zinc-800">

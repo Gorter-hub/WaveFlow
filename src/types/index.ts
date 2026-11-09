@@ -30,6 +30,44 @@ export type GenreSelectionMode = 'surprise' | 'prefer' | 'strict';
 
 export type WizardStep = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
+export type CamelotKey = `${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12}${'A' | 'B'}`;
+
+export interface EnrichedTrack {
+  id: string;
+  uri: string;
+  name: string;
+  artist: string;
+  artists: string[];
+  album: string;
+  album_art: string;
+  albumArt?: string;
+  duration_ms: number;
+  preview_url: string | null;
+  bpm: number;
+  camelot_key: CamelotKey;
+  pitch_class: number; // 0 to 11 (C, C#, D...)
+  mode: 0 | 1; // 0 = Minor (A), 1 = Major (B)
+  energy_score: number; // 0 - 100
+  valence_score: number; // 0 - 100
+  arousal_norm: number; // -1.0 to 1.0 (Russell circumplex)
+  valence_norm: number; // -1.0 to 1.0 (Russell circumplex)
+  vocal_presence: number; // 0 - 100
+  genres: string[];
+  genre_vibe?: string;
+  mood_vibe: string;
+  analysis_source: 'web_audio' | 'gemini_batch' | 'heuristic';
+  cached_at: number;
+
+  // Compatibility aliases
+  energy?: number;
+  valence?: number;
+  phase?: string;
+  phaseIndex?: number;
+  overallIndex?: number;
+  transition_note?: string;
+  transition_score?: number;
+}
+
 export interface FlowGenerationControls {
   targetDurationMins?: number;
   intensity?: IntensityLevel;
@@ -112,6 +150,17 @@ export interface Track {
   vocal_presence: number; // 0 - 100 (0 = purely instrumental, 100 = heavy vocals)
   mood_vibe: string; // Semantic descriptor: "hypnotic", "driving", "ambient", "euphoric", "introspective"
   genre_vibe?: string;
+
+  // Harmonic & Russell Circumplex Space
+  camelot_key?: CamelotKey;
+  pitch_class?: number; // 0 to 11
+  mode?: 0 | 1; // 0 = Minor (A), 1 = Major (B)
+  arousal_norm?: number; // -1.0 to 1.0 (Russell circumplex)
+  valence_norm?: number; // -1.0 to 1.0 (Russell circumplex)
+  genres?: string[];
+  analysis_source?: 'web_audio' | 'gemini_batch' | 'heuristic';
+  cached_at?: number;
+  transition_score?: number;
 
   // Backwards compatibility aliases
   energy?: number;
