@@ -4,7 +4,7 @@ import { useWaveFlowStore } from '../store/useWaveFlowStore';
 import { formatDuration, getEnergyColor } from '../utils/formatters';
 import { getCamelotBadgeStyle, getCamelotKeyName } from '../algorithm/camelot';
 import { SwapTrackModal } from './SwapTrackModal';
-import { Clock, Play, Pause, Volume2, Activity, ArrowLeftRight } from 'lucide-react';
+import { Clock, Play, Pause, Volume2, Activity, ArrowLeftRight, RefreshCw } from 'lucide-react';
 
 interface TracklistTableProps {
   tracks: Track[];
@@ -221,10 +221,10 @@ export const TracklistTable: React.FC<TracklistTableProps> = ({
                         e.stopPropagation();
                         setSwapTargetIndex(idx);
                       }}
-                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg bg-zinc-800 hover:bg-spotify hover:text-black text-zinc-400 hover:scale-105 transition-all shadow-sm"
+                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg bg-zinc-800 hover:bg-spotify hover:text-black text-zinc-400 hover:scale-105 transition-all shadow-sm flex items-center gap-1"
                       title="Swap this track with a compatible harmonic alternative"
                     >
-                      <ArrowLeftRight className="w-3.5 h-3.5" />
+                      <RefreshCw className="w-3.5 h-3.5" />
                     </button>
                   )}
                 </div>

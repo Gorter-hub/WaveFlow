@@ -34,6 +34,7 @@ import {
   TransitionContext
 } from '../algorithm/transitionScorer';
 import { evaluateCamelotTransition } from '../algorithm/camelot';
+import { trackMatchesMacroGenres } from '../utils/genreTaxonomy';
 import { generateMockLikedTracks } from '../api/mockData';
 import confetti from 'canvas-confetti';
 
@@ -647,13 +648,41 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
     // Exclude currently placed tracks (except the current one)
     const available = likedTracks.filter((t) => !usedIds.has(t.id) && t.id !== currentTrack.id);
 
+    // Stage 1 Hard Gate Filtering for swap candidates (Zero Bleed)
+    const isStrictInstrumental = flowControls.vocals === 'instrumental';
+    const isStrictVocals = flowControls.vocals === 'welcome';
+    const isStrictGenre =
+      flowControls.genreMode === 'strict' && (flowControls.selectedGenres?.length || 0) > 0;
+    const selectedGenres = flowControls.selectedGenres || [];
+
+    const hardGated = available.filter((candidate) => {
+      const vocals = candidate.vocal_presence ?? 50;
+      if (isStrictInstrumental && (vocals > 5 || candidate.has_lyrics === true)) {
+        return false;
+      }
+      if (isStrictVocals && vocals < 40) {
+        return false;
+      }
+      if (isStrictGenre && !trackMatchesMacroGenres(candidate, selectedGenres)) {
+        return false;
+      }
+      return true;
+    });
+
+    // Match energy band (+/- 10% or closest available)
+    const currentEnergy = currentTrack.energy_score ?? 50;
+    const inEnergyBand = hardGated.filter(
+      (c) => Math.abs((c.energy_score ?? 50) - currentEnergy) <= 12
+    );
+    const candidateList = inEnergyBand.length >= 4 ? inEnergyBand : hardGated;
+
     const context: TransitionContext = {
       intentId: flowIntent,
       transitionStyle: flowControls.transitionStyle || 'natural',
       phaseType: (currentTrack.phase as any) || 'plateau'
     };
 
-    const scored = available.map((candidate) => {
+    const scored = candidateList.map((candidate) => {
       const { combinedScore, note } = evaluateBidirectionalSwapCost(
         candidate,
         prevTrack,
@@ -671,7 +700,8 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
 
       const harmonicEval = evaluateCamelotTransition(
         prevTrack?.camelot_key,
-        candidate.camelot_key
+        candidate.camelot_key,
+        currentTrack.phase
       );
 
       return {

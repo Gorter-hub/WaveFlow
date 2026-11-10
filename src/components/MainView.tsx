@@ -3,6 +3,7 @@ import { useWaveFlowStore } from '../store/useWaveFlowStore';
 import { EnergyCurveChart } from './EnergyCurveChart';
 import { TracklistTable } from './TracklistTable';
 import { LiveWaveformPreview } from './LiveWaveformPreview';
+import { GenreSelector } from './GenreSelector';
 import { COGNITIVE_INTENTS } from '../algorithm/curveGenerator';
 import { CognitiveFlowIntentId, IntentCategory } from '../types';
 import { formatDuration } from '../utils/formatters';
@@ -526,84 +527,8 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      {/* Control 1: Sound & Genre Filtering */}
-                      <div className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800/80 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
-                            <Disc3 className="w-3.5 h-3.5 text-spotify" />
-                            <span>Genre Selection Mode</span>
-                          </span>
-                          <span className="text-[11px] font-mono text-spotify font-semibold">
-                            {genreMode === 'surprise' && 'Surprise Me'}
-                            {genreMode === 'prefer' && 'Prefer Selected (+40)'}
-                            {genreMode === 'strict' && 'Strict Lock'}
-                          </span>
-                        </div>
-
-                        <div className="grid grid-cols-3 gap-1.5">
-                          {[
-                            { id: 'surprise', label: 'Surprise Me' },
-                            { id: 'prefer', label: 'Prefer Genres' },
-                            { id: 'strict', label: 'Strict Only' }
-                          ].map((mode) => (
-                            <button
-                              key={mode.id}
-                              onClick={() => setFlowControls({ genreMode: mode.id as any })}
-                              className={`py-1.5 px-1 rounded-lg text-xs font-bold transition-all ${
-                                genreMode === mode.id
-                                  ? 'bg-spotify text-black shadow-md'
-                                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white'
-                              }`}
-                            >
-                              {mode.label}
-                            </button>
-                          ))}
-                        </div>
-
-                        {/* Genre Tags Selection */}
-                        <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pt-1">
-                          {allAvailableGenres.slice(0, 16).map((genre) => {
-                            const isSelected = selectedGenres.includes(genre);
-                            return (
-                              <button
-                                key={genre}
-                                onClick={() => handleToggleGenre(genre)}
-                                className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
-                                  isSelected
-                                    ? 'bg-spotify text-black font-bold'
-                                    : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
-                                }`}
-                              >
-                                {genre}
-                              </button>
-                            );
-                          })}
-                        </div>
-
-                        {/* Custom Genre Tag Input */}
-                        <div className="flex items-center gap-2 pt-1">
-                          <input
-                            type="text"
-                            value={customGenreInput}
-                            onChange={(e) => setCustomGenreInput(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                handleAddCustomGenre();
-                              }
-                            }}
-                            placeholder="Add tag (e.g. Synthwave, Bossa Nova)..."
-                            className="flex-1 bg-zinc-800 border border-zinc-700 text-white rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-spotify"
-                          />
-                          <button
-                            onClick={handleAddCustomGenre}
-                            disabled={!customGenreInput.trim()}
-                            className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-white text-xs font-bold"
-                          >
-                            Add
-                          </button>
-                        </div>
-                      </div>
+                      {/* Control 1: Sound & Macro-Genre Filtering with Live Counts */}
+                      <GenreSelector />
 
                       {/* Control 2: Energy & Trajectory Level */}
                       <div className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800/80 space-y-3">

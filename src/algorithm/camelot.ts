@@ -102,11 +102,12 @@ export interface CamelotCompatibilityResult {
 }
 
 /**
- * Calculates harmonic distance on the Camelot Wheel
+ * Calculates harmonic distance on the Camelot Wheel according to the Master Neuroacoustic Specification
  */
 export function evaluateCamelotTransition(
   keyA: CamelotKey | undefined,
-  keyB: CamelotKey | undefined
+  keyB: CamelotKey | undefined,
+  phaseType?: string
 ): CamelotCompatibilityResult {
   if (!keyA || !keyB) {
     return {
@@ -131,6 +132,7 @@ export function evaluateCamelotTransition(
 
   // 1. Same letter (Major -> Major or Minor -> Minor)
   if (letterA === letterB) {
+    // Clave Idéntica (ΔN = 0, L_i = L_j) -> Coste = 0.00
     if (circularDiff === 0) {
       return {
         distance: 0,
@@ -140,53 +142,58 @@ export function evaluateCamelotTransition(
         label: 'Tonal Lock (Exact Key)'
       };
     }
+    // Quinta / Cuarta Ascendente (ΔN = 1, L_i = L_j) -> Coste = 0.15
     if (circularDiff === 1) {
       return {
         distance: 1,
         relation: 'adjacent',
-        cost: 0.08,
-        score: 92,
+        cost: 0.15,
+        score: 85,
         label: 'Adjacent Harmonic Blend (±1 Fifth)'
       };
     }
-    // Energy Boost: +2 hours on the Camelot wheel (ascends one whole step musically, e.g., 8A -> 10A)
-    if (forwardStep === 2) {
+    // Energy Boost (+7 pasos mod 12 / +1 semitono): Coste = 0.35 (solo en clímax; 0.90 en otras)
+    if (forwardStep === 7) {
+      const isClimax = phaseType === 'climax' || phaseType === 'build';
+      const cost = isClimax ? 0.35 : 0.90;
       return {
-        distance: 2,
+        distance: 7,
         relation: 'energy_boost',
-        cost: 0.18,
-        score: 82,
-        label: 'Harmonic Energy Boost (+2 Semitones)'
+        cost,
+        score: Math.round((1 - cost) * 100),
+        label: isClimax
+          ? 'Climax Harmonic Energy Boost (+1 Semitone / +7 Steps)'
+          : 'Off-Phase Energy Jump'
       };
     }
-    if (circularDiff === 2) {
+    // Paso de Tono Entero (+2 pasos mod 12) -> Coste = 0.45
+    if (forwardStep === 2 || circularDiff === 2) {
       return {
         distance: 2,
         relation: 'two_step',
-        cost: 0.35,
-        score: 65,
-        label: 'Two-Step Modulated Shift'
+        cost: 0.45,
+        score: 55,
+        label: 'Whole Tone Step (+2 Camelot Steps)'
       };
     }
-    // Clash
-    const clashCost = Math.min(1.0, 0.45 + circularDiff * 0.1);
+    // Colisión Disonante (resto de combinaciones) -> Coste = 1.00
     return {
       distance: circularDiff,
       relation: 'clash',
-      cost: clashCost,
-      score: Math.max(10, Math.round((1 - clashCost) * 100)),
-      label: `Harmonic Tension (Δ${circularDiff})`
+      cost: 1.0,
+      score: 5,
+      label: `Harmonic Clash (Δ${circularDiff})`
     };
   }
 
   // 2. Different letter (Relative / Parallel major/minor switch)
   if (circularDiff === 0) {
-    // Relative Major/Minor (e.g., 8A Am <-> 8B C Maj)
+    // Relativo Mayor/Menor (ΔN = 0, L_i != L_j) -> Coste = 0.10
     return {
       distance: 0,
       relation: 'relative',
-      cost: 0.05,
-      score: 95,
+      cost: 0.10,
+      score: 90,
       label: 'Relative Major/Minor (Parallel Mode)'
     };
   }
@@ -196,18 +203,18 @@ export function evaluateCamelotTransition(
     return {
       distance: 1,
       relation: 'diagonal',
-      cost: 0.22,
-      score: 78,
+      cost: 0.50,
+      score: 50,
       label: 'Diagonal Mode Modulation'
     };
   }
 
-  const clashCost = Math.min(1.0, 0.55 + circularDiff * 0.1);
+  // Colisión Disonante (resto de combinaciones) -> Coste = 1.00
   return {
     distance: circularDiff,
     relation: 'clash',
-    cost: clashCost,
-    score: Math.max(5, Math.round((1 - clashCost) * 100)),
+    cost: 1.0,
+    score: 5,
     label: `Dissonant Key Jump (Δ${circularDiff} Mode Switch)`
   };
 }

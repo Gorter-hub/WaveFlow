@@ -32,6 +32,22 @@ export type WizardStep = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 export type CamelotKey = `${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12}${'A' | 'B'}`;
 
+export type MacroGenre =
+  | 'Ska'
+  | 'Reggae'
+  | 'Punk'
+  | 'Rock'
+  | 'Metal'
+  | 'Electronic'
+  | 'Hip-Hop'
+  | 'Jazz'
+  | 'Latin'
+  | 'Pop'
+  | 'Indie'
+  | 'Folk'
+  | 'Classical'
+  | 'Lo-Fi';
+
 export interface EnrichedTrack {
   id: string;
   uri: string;
@@ -52,7 +68,9 @@ export interface EnrichedTrack {
   arousal_norm: number; // -1.0 to 1.0 (Russell circumplex)
   valence_norm: number; // -1.0 to 1.0 (Russell circumplex)
   vocal_presence: number; // 0 - 100
+  has_lyrics?: boolean;
   genres: string[];
+  macro_genres?: MacroGenre[];
   genre_vibe?: string;
   mood_vibe: string;
   analysis_source: 'web_audio' | 'gemini_batch' | 'heuristic';
@@ -148,6 +166,7 @@ export interface Track {
   valence_score: number; // 0 - 100 (emotional brightness)
   bpm: number; // Tempo
   vocal_presence: number; // 0 - 100 (0 = purely instrumental, 100 = heavy vocals)
+  has_lyrics?: boolean;
   mood_vibe: string; // Semantic descriptor: "hypnotic", "driving", "ambient", "euphoric", "introspective"
   genre_vibe?: string;
 
@@ -158,6 +177,7 @@ export interface Track {
   arousal_norm?: number; // -1.0 to 1.0 (Russell circumplex)
   valence_norm?: number; // -1.0 to 1.0 (Russell circumplex)
   genres?: string[];
+  macro_genres?: MacroGenre[];
   analysis_source?: 'web_audio' | 'gemini_batch' | 'heuristic';
   cached_at?: number;
   transition_score?: number;

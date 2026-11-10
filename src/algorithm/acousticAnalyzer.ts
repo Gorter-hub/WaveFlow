@@ -1,5 +1,6 @@
-import { Track, EnrichedTrack, CamelotKey } from '../types';
+import { Track, EnrichedTrack, CamelotKey, MacroGenre } from '../types';
 import { pitchClassAndModeToCamelot } from './camelot';
+import { resolveMacroGenres } from '../utils/genreTaxonomy';
 
 /**
  * Intelligent acoustic vector profiler & Client-Side Web Audio feature extractor.
@@ -106,6 +107,8 @@ export function extractFeaturesFromAudioBuffer(audioBuffer: AudioBuffer): {
   camelot_key: CamelotKey;
   valence_norm: number;
   arousal_norm: number;
+  vocal_presence: number;
+  has_lyrics: boolean;
 } {
   const pcm = audioBuffer.getChannelData(0);
   const sampleRate = audioBuffer.sampleRate;
@@ -213,6 +216,17 @@ export function extractFeaturesFromAudioBuffer(audioBuffer: AudioBuffer): {
   const arousalNorm = Math.max(-1.0, Math.min(1.0, (energyScore - 50) / 50));
   const valenceNorm = Math.max(-1.0, Math.min(1.0, (detectedMode === 1 ? 0.3 : -0.2) + (detectedBpm > 120 ? 0.2 : -0.1)));
 
+  // 5. Zero-Crossing Rate & Vocal Presence Estimation
+  let zcrCount = 0;
+  for (let i = 1; i < length; i += 4) {
+    if ((pcm[i] >= 0 && pcm[i - 1] < 0) || (pcm[i] < 0 && pcm[i - 1] >= 0)) {
+      zcrCount++;
+    }
+  }
+  const zcrRate = zcrCount / (length / 4);
+  const vocalScore = Math.min(95, Math.max(5, Math.round(zcrRate * 350 + (rms > 0.08 ? 25 : 8))));
+  const hasLyrics = vocalScore > 20;
+
   return {
     energy_score: energyScore,
     bpm: detectedBpm,
@@ -220,7 +234,9 @@ export function extractFeaturesFromAudioBuffer(audioBuffer: AudioBuffer): {
     mode: detectedMode,
     camelot_key: camelotKey,
     arousal_norm: Number(arousalNorm.toFixed(3)),
-    valence_norm: Number(valenceNorm.toFixed(3))
+    valence_norm: Number(valenceNorm.toFixed(3)),
+    vocal_presence: vocalScore,
+    has_lyrics: hasLyrics
   };
 }
 
@@ -367,46 +383,60 @@ export function enrichTrackAcousticVectors(track: Partial<Track>): EnrichedTrack
     ? track.artists
     : track.artist ? [track.artist] : ['Unknown Artist'];
 
-  return {
-    id: track.id || `track-${seed}`,
-    uri: track.uri || `spotify:track:${track.id}`,
-    name: track.name || 'Unknown Track',
-    artist: track.artist || artistsArray[0],
-    artists: artistsArray,
-    album: track.album || 'Unknown Album',
-    albumArt: track.albumArt || (track as any).album_art,
-    album_art: track.albumArt || (track as any).album_art || '',
-    duration_ms: track.duration_ms || 210000,
-    preview_url: track.preview_url || null,
+    const rawGenres =
+      track.genres && track.genres.length > 0 ? track.genres : [finalGenre];
+    const macroGenres =
+      track.macro_genres && track.macro_genres.length > 0
+        ? track.macro_genres
+        : resolveMacroGenres(rawGenres, `${track.name || ''} ${track.artist || ''} ${track.album || ''}`);
 
-    bpm: finalBpm,
-    camelot_key: camelotKey,
-    pitch_class: pitchClass,
-    mode: mode,
+    const hasLyrics =
+      track.has_lyrics !== undefined
+        ? track.has_lyrics
+        : finalVocal > 15;
 
-    energy_score: finalEnergy,
-    valence_score: finalValence,
-    arousal_norm: arousalNorm,
-    valence_norm: valenceNorm,
-    vocal_presence: finalVocal,
+    return {
+      id: track.id || `track-${seed}`,
+      uri: track.uri || `spotify:track:${track.id}`,
+      name: track.name || 'Unknown Track',
+      artist: track.artist || artistsArray[0],
+      artists: artistsArray,
+      album: track.album || 'Unknown Album',
+      albumArt: track.albumArt || (track as any).album_art,
+      album_art: track.albumArt || (track as any).album_art || '',
+      duration_ms: track.duration_ms || 210000,
+      preview_url: track.preview_url || null,
 
-    mood_vibe: finalMood,
-    genre_vibe: finalGenre,
-    genres: [finalGenre],
+      bpm: finalBpm,
+      camelot_key: camelotKey,
+      pitch_class: pitchClass,
+      mode: mode,
 
-    analysis_source: track.analysis_source || 'heuristic',
-    cached_at: track.cached_at || Date.now(),
+      energy_score: finalEnergy,
+      valence_score: finalValence,
+      arousal_norm: arousalNorm,
+      valence_norm: valenceNorm,
+      vocal_presence: finalVocal,
+      has_lyrics: hasLyrics,
 
-    // Backward compatibility aliases
-    energy: finalEnergy,
-    valence: finalValence,
+      mood_vibe: finalMood,
+      genre_vibe: finalGenre,
+      genres: rawGenres,
+      macro_genres: macroGenres,
 
-    phase: track.phase,
-    phaseIndex: track.phaseIndex,
-    overallIndex: track.overallIndex,
-    transition_note: track.transition_note,
-    transition_score: track.transition_score
-  };
+      analysis_source: track.analysis_source || 'heuristic',
+      cached_at: track.cached_at || Date.now(),
+
+      // Backward compatibility aliases
+      energy: finalEnergy,
+      valence: finalValence,
+
+      phase: track.phase,
+      phaseIndex: track.phaseIndex,
+      overallIndex: track.overallIndex,
+      transition_note: track.transition_note,
+      transition_score: track.transition_score
+    };
 }
 
 /**

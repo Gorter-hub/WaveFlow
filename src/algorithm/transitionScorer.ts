@@ -25,7 +25,8 @@ export interface TransitionEvaluation {
 
 /**
  * Metric Tempo Compatibility:
- * Analyzes exact 1.0x ratio, 0.5x (half-time), and 2.0x (double-time) metric relations.
+ * Calculates normalized BPM divergence according to master neuroacoustic specification:
+ * ΔBPM_norm(b_i, b_j) = min_{m in {0.5, 1.0, 2.0}} (|b_j * m - b_i| / (0.08 * b_i))
  */
 export function calculateBpmCompatibility(
   bpmA: number,
@@ -37,80 +38,54 @@ export function calculateBpmCompatibility(
   relation: 'tempo_lock' | 'near' | 'half_time' | 'double_time' | 'glide' | 'jump';
   cost: number; // 0 to 1.0
   score: number; // 0 to 100
+  deltaBpmNorm: number;
 } {
   const bA = Math.max(40, bpmA || 124);
   const bB = Math.max(40, bpmB || 124);
   const directDelta = Math.abs(bA - bB);
   const ratio = bB / bA;
 
-  if (directDelta <= 1.5) {
-    return {
-      effectiveDelta: directDelta,
-      ratio,
-      relation: 'tempo_lock',
-      cost: 0.0,
-      score: 100
-    };
-  }
+  // Master metric ratios: 0.5x, 1.0x, 2.0x normalized by (0.08 * bA)
+  const multipliers = allowHalfDouble ? [0.5, 1.0, 2.0] : [1.0];
+  let minNormDivergence = Infinity;
+  let bestM = 1.0;
 
-  if (directDelta <= 3.5) {
-    return {
-      effectiveDelta: directDelta,
-      ratio,
-      relation: 'near',
-      cost: 0.06,
-      score: 94
-    };
-  }
-
-  if (allowHalfDouble) {
-    // Check Half-Time (B is ~0.5x A, e.g. 140 -> 70 or 160 -> 80)
-    const halfRatio = Math.abs(ratio - 0.5);
-    const halfDelta = Math.abs(bA - bB * 2);
-    if (halfRatio <= 0.04 || halfDelta <= 5) {
-      return {
-        effectiveDelta: halfDelta,
-        ratio,
-        relation: 'half_time',
-        cost: 0.12,
-        score: 88
-      };
-    }
-
-    // Check Double-Time (B is ~2.0x A, e.g. 70 -> 140 or 80 -> 160)
-    const doubleRatio = Math.abs(ratio - 2.0);
-    const doubleDelta = Math.abs(bA * 2 - bB);
-    if (doubleRatio <= 0.04 || doubleDelta <= 5) {
-      return {
-        effectiveDelta: doubleDelta,
-        ratio,
-        relation: 'double_time',
-        cost: 0.12,
-        score: 88
-      };
+  for (const m of multipliers) {
+    const diff = Math.abs(bB * m - bA);
+    const norm = diff / (0.08 * bA);
+    if (norm < minNormDivergence) {
+      minNormDivergence = norm;
+      bestM = m;
     }
   }
 
-  if (directDelta <= 7.0) {
-    const cost = 0.15 + (directDelta - 3.5) * 0.05;
-    return {
-      effectiveDelta: directDelta,
-      ratio,
-      relation: 'glide',
-      cost,
-      score: Math.round((1 - cost) * 100)
-    };
+  // Cost mapping from ΔBPM_norm
+  let relation: 'tempo_lock' | 'near' | 'half_time' | 'double_time' | 'glide' | 'jump' = 'jump';
+  let cost = Math.min(1.0, minNormDivergence * 0.25);
+
+  if (minNormDivergence <= 0.15) {
+    relation = bestM === 0.5 ? 'double_time' : bestM === 2.0 ? 'half_time' : 'tempo_lock';
+    cost = bestM === 1.0 ? 0.0 : 0.08;
+  } else if (minNormDivergence <= 0.5) {
+    relation = bestM === 0.5 ? 'double_time' : bestM === 2.0 ? 'half_time' : 'near';
+    cost = bestM === 1.0 ? 0.06 : 0.12;
+  } else if (minNormDivergence <= 1.0) {
+    relation = bestM === 0.5 ? 'double_time' : bestM === 2.0 ? 'half_time' : 'glide';
+    cost = 0.15 + (minNormDivergence - 0.5) * 0.2;
+  } else {
+    relation = 'jump';
+    cost = Math.min(1.0, 0.40 + (minNormDivergence - 1.0) * 0.25);
   }
 
-  // Large BPM Jump
-  const excess = directDelta - 7.0;
-  const cost = Math.min(1.0, 0.35 + excess * 0.04);
+  const score = Math.max(5, Math.round((1 - Math.min(1.0, cost)) * 100));
+
   return {
     effectiveDelta: directDelta,
     ratio,
-    relation: 'jump',
+    relation,
     cost,
-    score: Math.max(10, Math.round((1 - cost) * 100))
+    score,
+    deltaBpmNorm: Number(minNormDivergence.toFixed(3))
   };
 }
 
@@ -210,17 +185,21 @@ export function evaluateTrackTransition(
     recentArtists = []
   } = context;
 
-  // 1. Camelot Harmonic Evaluation
-  const harmonicResult = evaluateCamelotTransition(prevTrack.camelot_key, nextTrack.camelot_key);
+  // 1. Camelot Harmonic Evaluation (using phaseType for climax boost qualification)
+  const harmonicResult = evaluateCamelotTransition(
+    prevTrack.camelot_key,
+    nextTrack.camelot_key,
+    phaseType
+  );
   let cHarmonic = harmonicResult.cost;
 
-  // 2. Metric Tempo Evaluation
+  // 2. Metric Tempo Evaluation (using normalized ΔBPM_norm)
   const bpmResult = calculateBpmCompatibility(
     prevTrack.bpm || 124,
     nextTrack.bpm || 124,
     allowHalfDoubleTime
   );
-  let cTempo = bpmResult.cost;
+  let cTempo = Math.min(1.0, bpmResult.deltaBpmNorm > 1.0 ? 1.0 : bpmResult.cost);
 
   // 3. Russell Circumplex Evaluation
   const circumplexResult = calculateCircumplexDistance(prevTrack, nextTrack, phaseType);
@@ -235,7 +214,7 @@ export function evaluateTrackTransition(
   if (intentId === 'deep_focus' || intentId === 'reading_study') {
     if (nextVocals > 35) cStyle += (nextVocals - 35) * 0.015;
   } else if (vocalDelta > 55) {
-    cStyle += 0.20; // Sudden shift from pure ambient to screaming choir
+    cStyle += 0.20; // Sudden shift from pure ambient to vocal choir
   }
 
   // Genre compatibility bonus
@@ -245,7 +224,7 @@ export function evaluateTrackTransition(
     cStyle = Math.max(0, cStyle - 0.12);
   }
 
-  // 5. Sequence Context Penalties & Artist Cooldown
+  // 5. Sequence Context Penalties & Artist Cooldown (P_artist = 2.0 if in last 4 positions)
   let penalty = 0;
 
   // Hard duplicate prevention
@@ -256,49 +235,48 @@ export function evaluateTrackTransition(
     prevTrack.name.toLowerCase() === nextTrack.name.toLowerCase() &&
     prevTrack.artist.toLowerCase() === nextTrack.artist.toLowerCase()
   ) {
-    penalty += 160;
+    penalty += 180;
   }
 
-  // Consecutive same artist
+  // Artist cooldown penalty: P_artist = 2.0 (200 in 0-100 scale) if in past 4 positions
   const prevArtistNorm = prevTrack.artist.toLowerCase().trim();
   const nextArtistNorm = nextTrack.artist.toLowerCase().trim();
 
   if (prevArtistNorm === nextArtistNorm) {
-    penalty += 85;
+    penalty += 200; // Consecutive same artist is strictly blocked
   } else {
-    // Check recent artists cooldown (last 4 tracks)
-    const artistIndex = recentArtists.map(a => a.toLowerCase().trim()).indexOf(nextArtistNorm);
-    if (artistIndex !== -1) {
-      // Cooldown penalty inversely proportional to distance (more recent = higher penalty)
-      const dist = recentArtists.length - artistIndex;
-      penalty += Math.max(15, 45 - dist * 10);
+    // Check recent 4 positions
+    const last4Artists = recentArtists.slice(-4).map((a) => a.toLowerCase().trim());
+    if (last4Artists.includes(nextArtistNorm)) {
+      penalty += 150; // P_artist cooldown penalty
     }
   }
 
-  // 6. Style-Specific Weight Adjustments
+  // 6. Master Neuroacoustic Specification Weights
+  // C(i,j) = 0.35 * D_Camelot + 0.25 * ΔBPM_norm + 0.25 * |E_j - E*| + 0.15 * |V_j - V*| + P_artist
   const isSmooth = transitionStyle === 'smooth' || transitionStyle === 'seamless';
   const isDynamic = transitionStyle === 'dynamic' || transitionStyle === 'adventurous';
 
   let wHarmonic = 0.35;
-  let wTempo = 0.35;
-  let wEmot = 0.20;
-  let wStyle = 0.10;
+  let wTempo = 0.25;
+  let wEmot = 0.25;
+  let wStyle = 0.15;
 
   if (isSmooth) {
     wHarmonic = 0.40;
-    wTempo = 0.40;
+    wTempo = 0.35;
     wEmot = 0.15;
-    wStyle = 0.05;
-    // Strict penalties for tempo in smooth
-    if (bpmResult.relation === 'jump') cTempo = Math.min(1.0, cTempo * 1.5);
-    if (harmonicResult.relation === 'clash') cHarmonic = Math.min(1.0, cHarmonic * 1.4);
+    wStyle = 0.10;
+    // Strict prune on tempo deviation in smooth mode: if ΔBPM_norm > 1.0 (exceeds 8%)
+    if (bpmResult.deltaBpmNorm > 1.0) cTempo = 1.0;
+    if (harmonicResult.relation === 'clash') cHarmonic = 1.0;
   } else if (isDynamic) {
     wHarmonic = 0.25;
     wTempo = 0.20;
     wEmot = 0.35;
     wStyle = 0.20;
     // Reward energy boosts and half/double time shifts
-    if (harmonicResult.relation === 'energy_boost') cHarmonic = 0.05;
+    if (harmonicResult.relation === 'energy_boost') cHarmonic = 0.10;
     if (bpmResult.relation === 'double_time' || bpmResult.relation === 'half_time') cTempo = 0.05;
   }
 

@@ -1,5 +1,6 @@
 import { SpotifyAuthTokens, Track, UserProfile } from '../types';
 import { enrichTrackAcousticVectors } from '../algorithm/acousticAnalyzer';
+import { resolveMacroGenres } from '../utils/genreTaxonomy';
 
 import { generateCodeChallenge, generateRandomString } from '../utils/pkce';
 
@@ -162,7 +163,44 @@ export async function getUserProfile(accessToken: string): Promise<UserProfile> 
 }
 
 /**
+ * Batch lookup of artist genres via Spotify API: GET /v1/artists?ids=... (chunks of 50)
+ */
+export async function fetchArtistsGenres(
+  artistIds: string[],
+  accessToken: string
+): Promise<Record<string, string[]>> {
+  const result: Record<string, string[]> = {};
+  if (!artistIds || artistIds.length === 0 || !accessToken) return result;
+
+  const uniqueIds = Array.from(new Set(artistIds.filter((id) => Boolean(id && id.trim()))));
+  const CHUNK_SIZE = 50;
+
+  for (let i = 0; i < uniqueIds.length; i += CHUNK_SIZE) {
+    const chunk = uniqueIds.slice(i, i + CHUNK_SIZE);
+    try {
+      const res = await fetch(`${SPOTIFY_API_BASE}/artists?ids=${chunk.join(',')}`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const artists = data.artists || [];
+        for (const artist of artists) {
+          if (artist && artist.id) {
+            result[artist.id] = artist.genres || [];
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[Spotify] Failed to fetch artist genres chunk:', err);
+    }
+  }
+
+  return result;
+}
+
+/**
  * Fetches all "Liked Songs" from Spotify (paginates through all pages)
+ * Resolves artist genres via batch /v1/artists lookup and maps to macro-genres.
  */
 export async function fetchUserLikedSongs(
   accessToken: string,
@@ -170,6 +208,9 @@ export async function fetchUserLikedSongs(
   onProgress?: (fetched: number, total: number) => void
 ): Promise<Track[]> {
   const allTracks: Track[] = [];
+  const trackArtistMap: { trackIndex: number; artistIds: string[] }[] = [];
+  const allArtistIdsSet = new Set<string>();
+
   const limit = 50;
   let offset = 0;
   let totalReported = Infinity;
@@ -196,6 +237,9 @@ export async function fetchUserLikedSongs(
       const t = item.track;
       if (!t) continue;
 
+      const trackArtistIds = (t.artists || []).map((a: { id?: string }) => a.id).filter(Boolean);
+      trackArtistIds.forEach((id: string) => allArtistIdsSet.add(id));
+
       const rawTrack: Partial<Track> = {
         id: t.id,
         name: t.name,
@@ -209,7 +253,10 @@ export async function fetchUserLikedSongs(
       };
 
       // Compute intelligent acoustic vectors immediately
-      allTracks.push(enrichTrackAcousticVectors(rawTrack));
+      const enriched = enrichTrackAcousticVectors(rawTrack);
+      const currentIndex = allTracks.length;
+      allTracks.push(enriched);
+      trackArtistMap.push({ trackIndex: currentIndex, artistIds: trackArtistIds });
     }
 
     if (onProgress) {
@@ -222,6 +269,33 @@ export async function fetchUserLikedSongs(
     }
 
     offset += limit;
+  }
+
+  // Batch resolve artist genres and map to parent macro families
+  if (allArtistIdsSet.size > 0 && accessToken) {
+    try {
+      const artistGenres = await fetchArtistsGenres(Array.from(allArtistIdsSet), accessToken);
+
+      for (const item of trackArtistMap) {
+        const track = allTracks[item.trackIndex];
+        if (!track) continue;
+
+        const collectedGenres = new Set<string>(track.genres || []);
+        for (const aId of item.artistIds) {
+          const genres = artistGenres[aId] || [];
+          genres.forEach((g) => collectedGenres.add(g));
+        }
+
+        const genresList = Array.from(collectedGenres);
+        track.genres = genresList;
+        track.macro_genres = resolveMacroGenres(genresList, `${track.name} ${track.artist} ${track.album}`);
+        if (genresList.length > 0 && !track.genre_vibe) {
+          track.genre_vibe = genresList[0];
+        }
+      }
+    } catch (err) {
+      console.warn('[Spotify] Error batch resolving artist genres:', err);
+    }
   }
 
   return allTracks;

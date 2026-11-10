@@ -12,34 +12,13 @@ import {
 } from '../types';
 import { evaluateTrackTransition, TransitionContext } from './transitionScorer';
 import { hashString } from './acousticAnalyzer';
+import { trackMatchesMacroGenres } from '../utils/genreTaxonomy';
 
 /**
- * Checks whether a track matches any of the specified genre tags
+ * Checks whether a track matches any of the specified genre tags using the Macro-Genre taxonomy
  */
 export function trackMatchesGenres(track: Track, genres: string[]): boolean {
-  if (!genres || genres.length === 0) return true;
-  const list = genres.map((g) => g.toLowerCase().trim()).filter(Boolean);
-  if (
-    list.length === 0 ||
-    list.includes('all') ||
-    list.includes('all genres') ||
-    list.includes('surprise me')
-  ) {
-    return true;
-  }
-  const trackGenre = (track.genre_vibe || '').toLowerCase();
-  const trackMood = (track.mood_vibe || '').toLowerCase();
-  const trackName = (track.name || '').toLowerCase();
-  const trackArtist = (track.artist || '').toLowerCase();
-
-  return list.some((target) => {
-    return (
-      trackGenre.includes(target) ||
-      trackMood.includes(target) ||
-      trackName.includes(target) ||
-      trackArtist.includes(target)
-    );
-  });
+  return trackMatchesMacroGenres(track, genres);
 }
 
 /**
@@ -1113,21 +1092,21 @@ export function generateCognitiveDJFlow(
       return false;
     }
 
-    // Vocal Hard Gate (Zero Tolerance)
+    // Vocal Hard Gate (Zero Tolerance - Instrumental: vocal_presence <= 5 and no lyrics)
     const vocals = track.vocal_presence ?? 50;
     if (isStrictInstrumental) {
-      if (vocals > 15) {
+      if (vocals > 5 || track.has_lyrics === true) {
         return false;
       }
     } else if (isStrictVocals) {
-      if (vocals < 35) {
+      if (vocals < 40) {
         return false;
       }
     }
 
-    // Strict Genre Gate (Zero Tolerance)
+    // Strict Genre Gate (Zero Tolerance - Macro-Genre matching)
     if (isStrictGenre && selectedGenres.length > 0) {
-      if (!trackMatchesGenres(track, selectedGenres)) {
+      if (!trackMatchesMacroGenres(track, selectedGenres)) {
         return false;
       }
     }
@@ -1139,13 +1118,13 @@ export function generateCognitiveDJFlow(
   if (eligibleCatalog.length === 0) {
     let reason = 'No tracks in your library passed the active hard gates.';
     if (isStrictGenre && isStrictInstrumental) {
-      reason = `No tracks matched both strict genre "${selectedGenres.join(', ')}" and strict instrumental focus (vocal presence ≤ 15%).`;
+      reason = `No tracks matched both strict genre "${selectedGenres.join(', ')}" and strict instrumental focus (vocal presence ≤ 5%).`;
     } else if (isStrictGenre) {
       reason = `No tracks in your library strictly matched genre "${selectedGenres.join(', ')}". Try switching to "Prefer Genres".`;
     } else if (isStrictInstrumental) {
-      reason = `No purely instrumental tracks (vocal presence ≤ 15%) found in your library. Try "Balanced Voices".`;
+      reason = `No purely instrumental tracks (vocal presence ≤ 5%) found in your library. Try "Balanced Voices".`;
     } else if (isStrictVocals) {
-      reason = `No vocal-rich tracks (vocal presence ≥ 35%) found in your library.`;
+      reason = `No vocal-rich tracks (vocal presence ≥ 40%) found in your library.`;
     }
 
     return {
@@ -1525,3 +1504,9 @@ export function getPhaseConfigsForStyle(
     return cfg;
   });
 }
+
+/**
+ * Deterministic Iso-Principle Playlist Generation (Specification Alias)
+ */
+export const generateIsoPrinciplePlaylist = generateCognitiveDJFlow;
+
