@@ -872,43 +872,157 @@ const MOOD_COORDINATES: Record<string, { energy: number; valence: number }> = {
 };
 
 /**
- * Computes a soft target trajectory curve at progress t (0.0 to 1.0)
+ * Computes neuroacoustic target trajectory at progress progress (0.0 to 1.0)
+ * matching academic listening profiles
  */
-function getTargetTrajectoryPoint(
+export function getTargetTrajectoryPoint(
   intent: CognitiveIntentConfig,
   progress: number,
   intensityAdjustment: number = 0,
-  controls?: FlowGenerationControls
+  controls?: FlowGenerationControls,
+  totalDurationMins: number = 90
 ): { targetEnergy: number; targetValence: number; currentPhaseIdx: number } {
-  // Special handling for dynamic Mood Shift trajectory
-  if (intent.id === 'mood_shift' && controls?.moodShiftCurrent && controls?.moodShiftTarget) {
-    const startCoord = MOOD_COORDINATES[controls.moodShiftCurrent] || { energy: 50, valence: 50 };
-    const endCoord = MOOD_COORDINATES[controls.moodShiftTarget] || { energy: 70, valence: 80 };
+  const p = Math.min(1.0, Math.max(0.0, progress));
+  const timeMins = p * totalDurationMins;
 
-    const targetEnergy = Math.min(
-      100,
-      Math.max(15, startCoord.energy + (endCoord.energy - startCoord.energy) * progress + intensityAdjustment)
-    );
-    const targetValence = Math.min(
-      100,
-      Math.max(15, startCoord.valence + (endCoord.valence - startCoord.valence) * progress)
-    );
+  // Profile 1: Deep Focus (Flat Alpha baseline 45-60%, terminal decompression dip -25% in final 5%)
+  if (intent.id === 'deep_focus') {
+    let energy = 52;
+    let valence = 50;
+    let phaseIdx = 1;
 
-    const phaseIdx = progress < 0.25 ? 0 : progress < 0.75 ? 1 : 2;
+    if (p < 0.15) {
+      // Gentle Entry
+      const t = p / 0.15;
+      energy = 42 + 10 * Math.sin((t * Math.PI) / 2);
+      valence = 45 + 5 * t;
+      phaseIdx = 0;
+    } else if (p < 0.95) {
+      // Sustained Alpha Flow
+      const t = (p - 0.15) / 0.80;
+      energy = 52 + Math.sin(t * Math.PI * 4) * 1.8;
+      valence = 50 + Math.sin(t * Math.PI * 2) * 3;
+      phaseIdx = 1;
+    } else {
+      // Terminal Decompression Dip (-25%) in final 5%
+      const t = (p - 0.95) / 0.05;
+      energy = 52 - 22 * Math.sin((t * Math.PI) / 2);
+      valence = 50 - 8 * t;
+      phaseIdx = 2;
+    }
+
+    const targetEnergy = Math.min(100, Math.max(10, Math.round(energy + intensityAdjustment)));
+    const targetValence = Math.min(100, Math.max(10, Math.round(valence)));
     return { targetEnergy, targetValence, currentPhaseIdx: phaseIdx };
   }
 
+  // Profile 2: Party / Festival (15% warmup ramp, sustained 85-100% plateau, 2-track landing)
+  if (intent.id === 'festival_explosive') {
+    let energy = 90;
+    let valence = 85;
+    let phaseIdx = 1;
+
+    if (p < 0.15) {
+      const t = p / 0.15;
+      energy = 60 + 28 * Math.sin((t * Math.PI) / 2);
+      valence = 65 + 15 * t;
+      phaseIdx = 0;
+    } else if (p < 0.92) {
+      const t = (p - 0.15) / 0.77;
+      energy = 90 + Math.sin(t * Math.PI * 8) * 6;
+      valence = 85 + Math.sin(t * Math.PI * 4) * 5;
+      phaseIdx = 1;
+    } else {
+      const t = (p - 0.92) / 0.08;
+      energy = 90 - 25 * Math.sin((t * Math.PI) / 2);
+      valence = 80 - 15 * t;
+      phaseIdx = 2;
+    }
+
+    const targetEnergy = Math.min(100, Math.max(10, Math.round(energy + intensityAdjustment)));
+    const targetValence = Math.min(100, Math.max(10, Math.round(valence)));
+    return { targetEnergy, targetValence, currentPhaseIdx: phaseIdx };
+  }
+
+  // Profile 3: Night Drive / Roadtrip (Multi-crest sine waves with 15-min reset valleys every 45 mins)
+  if (intent.id === 'night_drive' || intent.id === 'roadtrip') {
+    const cycleMins = 60;
+    const currentMin = timeMins % cycleMins;
+    let energy = 70;
+    let valence = 60;
+    let phaseIdx = 1;
+
+    if (currentMin < 45) {
+      // 45 min drive crest
+      const t = currentMin / 45;
+      energy = 64 + Math.sin(t * Math.PI) * 14;
+      valence = 58 + Math.sin(t * Math.PI) * 10;
+      phaseIdx = p < 0.2 ? 0 : 1;
+    } else {
+      // 15 min reset valley to avoid sensory fatigue
+      const t = (currentMin - 45) / 15;
+      energy = 78 - 32 * Math.sin(t * Math.PI);
+      valence = 52 + Math.cos(t * Math.PI) * 6;
+      phaseIdx = 2;
+    }
+
+    const targetEnergy = Math.min(100, Math.max(10, Math.round(energy + intensityAdjustment)));
+    const targetValence = Math.min(100, Math.max(10, Math.round(valence)));
+    return { targetEnergy, targetValence, currentPhaseIdx: phaseIdx };
+  }
+
+  // Profile 4: Mood Shift (Sigmoidal ramp from baseline valence/energy to target state)
+  if (intent.id === 'mood_shift') {
+    const startCoord = MOOD_COORDINATES[controls?.moodShiftCurrent || 'tired'] || { energy: 35, valence: 40 };
+    const endCoord = MOOD_COORDINATES[controls?.moodShiftTarget || 'uplifted'] || { energy: 75, valence: 82 };
+
+    const k = 6;
+    const sigmoid = 1 / (1 + Math.exp(-k * (p - 0.5)));
+    const energy = startCoord.energy + (endCoord.energy - startCoord.energy) * sigmoid;
+    const valence = startCoord.valence + (endCoord.valence - startCoord.valence) * sigmoid;
+    const phaseIdx = p < 0.25 ? 0 : p < 0.75 ? 1 : 2;
+
+    const targetEnergy = Math.min(100, Math.max(10, Math.round(energy + intensityAdjustment)));
+    const targetValence = Math.min(100, Math.max(10, Math.round(valence)));
+    return { targetEnergy, targetValence, currentPhaseIdx: phaseIdx };
+  }
+
+  // Profile 5: Workout (Stepped ramp into sustained peak with interval modulations)
+  if (intent.id === 'workout') {
+    let energy = 80;
+    let valence = 75;
+    let phaseIdx = 1;
+
+    if (p < 0.15) {
+      energy = 45 + 27 * (p / 0.15);
+      phaseIdx = 0;
+    } else if (p < 0.85) {
+      const intervalCycle = Math.sin(p * Math.PI * 12);
+      energy = 82 + intervalCycle * 13;
+      phaseIdx = 1;
+    } else {
+      const t = (p - 0.85) / 0.15;
+      energy = 80 - 40 * Math.sin((t * Math.PI) / 2);
+      phaseIdx = 2;
+    }
+
+    const targetEnergy = Math.min(100, Math.max(10, Math.round(energy + intensityAdjustment)));
+    const targetValence = Math.min(100, Math.max(10, Math.round(valence)));
+    return { targetEnergy, targetValence, currentPhaseIdx: phaseIdx };
+  }
+
+  // Default multi-phase piecewise interpolation
   let accumulatedRatio = 0;
   let phaseIdx = 0;
 
   for (let i = 0; i < intent.phases.length; i++) {
     const phase = intent.phases[i];
     const nextRatio = accumulatedRatio + phase.duration_ratio;
-    if (progress <= nextRatio || i === intent.phases.length - 1) {
+    if (p <= nextRatio || i === intent.phases.length - 1) {
       phaseIdx = i;
       const phaseT = Math.min(
         1,
-        Math.max(0, (progress - accumulatedRatio) / Math.max(0.01, phase.duration_ratio))
+        Math.max(0, (p - accumulatedRatio) / Math.max(0.01, phase.duration_ratio))
       );
       const [minE, maxE] = phase.target_energy_range;
       const [minV, maxV] = phase.target_valence_range;
@@ -926,21 +1040,18 @@ function getTargetTrajectoryPoint(
 
   const lastPhase = intent.phases[intent.phases.length - 1];
   return {
-    targetEnergy: lastPhase.target_energy_range[1] + intensityAdjustment,
+    targetEnergy: Math.min(100, Math.max(10, lastPhase.target_energy_range[1] + intensityAdjustment)),
     targetValence: lastPhase.target_valence_range[1],
     currentPhaseIdx: intent.phases.length - 1
   };
 }
 
 /**
- * Intelligent Multi-Criteria Cognitive DJ Set Synthesizer
+ * Deterministic 3-Stage Neuroacoustic DJ Set Synthesizer
  *
- * GUARANTEES:
- * 1. Strict playlist duration compliance (targets specified minutes ±5%, never stopping prematurely).
- * 2. Multi-factor transition compatibility (half/double time, valence continuity, acoustic proximity).
- * 3. Artist repetition prevention (0 consecutive same-artist tracks, spaced across the set).
- * 4. Zero duplicate track IDs.
- * 5. Dynamic, continuous phase calculations mapped to actual track placements.
+ * STAGE 1: INFLEXIBLE HARD GATES (Boolean Pruning - Zero Bleed)
+ * STAGE 2: TARGET TRAJECTORY & TIME-PACKING (Continuous Slicing & Knapsack Matching)
+ * STAGE 3: COMBINATORIAL SEQUENCING & HARMONIC INTEGRITY (Camelot + Tempo Ratios + 2-Opt)
  */
 export function generateCognitiveDJFlow(
   availableTracks: Track[],
@@ -964,6 +1075,8 @@ export function generateCognitiveDJFlow(
     ...controls
   };
 
+  const normalizedPool = availableTracks.map(normalizeTrack);
+
   // 1. HARD DURATION TARGET (in milliseconds)
   const targetDurationMins =
     mergedControls.targetDurationMins ||
@@ -976,54 +1089,86 @@ export function generateCognitiveDJFlow(
   if (mergedControls.intensity === 'calm') intensityOffset = -15;
   if (mergedControls.intensity === 'intense' || mergedControls.intensity === 'energetic') intensityOffset = 15;
 
-  const normalizedPool = availableTracks.map(normalizeTrack);
-
-  // 3. GENRE SELECTION & FILTERING
+  // 3. GENRE FILTERS RESOLUTION
   const selectedGenres =
     mergedControls.selectedGenres && mergedControls.selectedGenres.length > 0
       ? mergedControls.selectedGenres
       : (mergedControls.genrePreference && mergedControls.genrePreference !== 'all' ? [mergedControls.genrePreference] : []);
 
-  const genreMode = mergedControls.genreMode || (selectedGenres.length > 0 ? 'prefer' : 'surprise');
+  const rawGenreMode = mergedControls.genreMode || (selectedGenres.length > 0 ? 'prefer' : 'surprise');
+  const isStrictGenre = rawGenreMode === 'strict' || (typeof rawGenreMode === 'string' && rawGenreMode.toLowerCase().includes('strict'));
+  const vocalPreference = (mergedControls.vocals || 'mixed').toLowerCase();
+  const isStrictInstrumental = vocalPreference === 'instrumental';
+  const isStrictVocals = vocalPreference === 'welcome' || vocalPreference === 'vocals welcome';
 
-  let candidatePool = normalizedPool;
   let strictWarning: string | undefined;
 
-  if (genreMode === 'strict' && selectedGenres.length > 0) {
-    const strictPool = normalizedPool.filter((t) => trackMatchesGenres(t, selectedGenres));
-    if (strictPool.length === 0) {
-      strictWarning = `No tracks in your library match the selected genres (${selectedGenres.join(', ')}). Consider switching to "Prefer These Genres" or adding more genres.`;
-      return {
-        flow_intent: intentId,
-        computed_total_duration_ms: 0,
-        computed_total_tracks: 0,
-        phases: [],
-        curated_set: [],
-        applied_controls: mergedControls,
-        strictWarning
-      };
+  // =========================================================================
+  // STAGE 1: INFLEXIBLE HARD GATES (BOOLEAN PRUNING - ZERO BLEED)
+  // =========================================================================
+  const eligibleCatalog = normalizedPool.filter((track) => {
+    // Duration Gate: evict unplayable or non-musical snippets (< 30s or > 15 min)
+    const dur = track.duration_ms || 210000;
+    if (dur < 30000 || dur > 900000) {
+      return false;
     }
-    candidatePool = strictPool;
-  }
 
-  // 4. VOCAL FILTERING
-  const isInstrumentalPriority =
-    mergedControls.vocals === 'instrumental' ||
-    (Boolean(intent.vocal_threshold_max) && mergedControls.vocals !== 'welcome');
-
-  if (isInstrumentalPriority) {
-    const threshold = intent.vocal_threshold_max || 25;
-    const instrumentalCandidates = candidatePool.filter((t) => t.vocal_presence <= threshold);
-    if (instrumentalCandidates.length >= 8) {
-      candidatePool = instrumentalCandidates;
-    } else {
-      const relaxed = candidatePool.filter((t) => t.vocal_presence <= threshold + 25);
-      if (relaxed.length >= 8) {
-        candidatePool = relaxed;
+    // Vocal Hard Gate (Zero Tolerance)
+    const vocals = track.vocal_presence ?? 50;
+    if (isStrictInstrumental) {
+      if (vocals > 15) {
+        return false;
+      }
+    } else if (isStrictVocals) {
+      if (vocals < 35) {
+        return false;
       }
     }
+
+    // Strict Genre Gate (Zero Tolerance)
+    if (isStrictGenre && selectedGenres.length > 0) {
+      if (!trackMatchesGenres(track, selectedGenres)) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  // If hard gates evicted 100% of tracks, return immediately with strictWarning
+  if (eligibleCatalog.length === 0) {
+    let reason = 'No tracks in your library passed the active hard gates.';
+    if (isStrictGenre && isStrictInstrumental) {
+      reason = `No tracks matched both strict genre "${selectedGenres.join(', ')}" and strict instrumental focus (vocal presence ≤ 15%).`;
+    } else if (isStrictGenre) {
+      reason = `No tracks in your library strictly matched genre "${selectedGenres.join(', ')}". Try switching to "Prefer Genres".`;
+    } else if (isStrictInstrumental) {
+      reason = `No purely instrumental tracks (vocal presence ≤ 15%) found in your library. Try "Balanced Voices".`;
+    } else if (isStrictVocals) {
+      reason = `No vocal-rich tracks (vocal presence ≥ 35%) found in your library.`;
+    }
+
+    return {
+      flow_intent: intentId,
+      computed_total_duration_ms: 0,
+      computed_total_tracks: 0,
+      phases: [],
+      curated_set: [],
+      applied_controls: mergedControls,
+      strictWarning: reason
+    };
   }
 
+  // Emit warning if strict gate left a narrow catalog
+  if (eligibleCatalog.length < 6) {
+    strictWarning = `Strict hard gates retained ${eligibleCatalog.length} tracks. Set duration may be constrained by strict filters.`;
+  }
+
+  // =========================================================================
+  // STAGE 2: TARGET TRAJECTORY & CONTINUOUS TIME-PACKING
+  // =========================================================================
+  // The catalog is strictly confined to eligibleCatalog (ZERO BLEED)
+  const candidatePool = eligibleCatalog;
   const curatedSet: Track[] = [];
   const usedTrackIds = new Set<string>();
   const recentArtists: string[] = [];
@@ -1035,13 +1180,14 @@ export function generateCognitiveDJFlow(
     allowHalfDoubleTime: true
   };
 
-  // 5. SELECT OPENER TRACK WITH SEED DIVERSITY
+  // Seed diversity for opener selection
   const seed = mergedControls.seed || 0;
-  const openerTrajectory = getTargetTrajectoryPoint(intent, 0.0, intensityOffset, mergedControls);
+  const openerTrajectory = getTargetTrajectoryPoint(intent, 0.0, intensityOffset, mergedControls, targetDurationMins);
+
   const openerCandidates = candidatePool.filter(
     (t) =>
-      Math.abs(t.energy_score - openerTrajectory.targetEnergy) <= 22 &&
-      Math.abs(t.valence_score - openerTrajectory.targetValence) <= 35
+      Math.abs(t.energy_score - openerTrajectory.targetEnergy) <= 24 &&
+      Math.abs(t.valence_score - openerTrajectory.targetValence) <= 38
   );
 
   const initialPickList = openerCandidates.length > 0 ? openerCandidates : candidatePool;
@@ -1066,25 +1212,27 @@ export function generateCognitiveDJFlow(
     transition_score: openerEval.score
   });
 
-  // 6. ADAPTIVE SEQUENCING LOOP WITH HARD DURATION CONSTRAINT
+  // =========================================================================
+  // STAGE 3: COMBINATORIAL SEQUENCING & HARMONIC INTEGRITY
+  // =========================================================================
   let currentAnchor = opener;
   let trackIndex = 2;
 
-  // Scaled duration threshold
-  const minRequiredMs =
-    targetDurationMins <= 45 ? targetDurationMs * 0.88 : targetDurationMs * 0.93;
+  // Minimum required duration (targets ±5% tolerance)
+  const minRequiredMs = targetDurationMs * 0.95;
+  const maxAllowedMs = targetDurationMs * 1.05;
 
   while (
     accumulatedMs < minRequiredMs ||
     (accumulatedMs < targetDurationMs && targetDurationMs - accumulatedMs > 60000)
   ) {
-    if (usedTrackIds.size >= normalizedPool.length) {
+    if (usedTrackIds.size >= candidatePool.length) {
       break;
     }
 
     const progress = Math.min(0.98, accumulatedMs / targetDurationMs);
-    const trajectory = getTargetTrajectoryPoint(intent, progress, intensityOffset, mergedControls);
-    const currentPhaseTemplate = intent.phases[trajectory.currentPhaseIdx];
+    const trajectory = getTargetTrajectoryPoint(intent, progress, intensityOffset, mergedControls, targetDurationMins);
+    const currentPhaseTemplate = intent.phases[trajectory.currentPhaseIdx] || intent.phases[0];
 
     const currentContext: TransitionContext = {
       ...transitionContext,
@@ -1092,17 +1240,13 @@ export function generateCognitiveDJFlow(
       recentArtists: recentArtists.slice(-4)
     };
 
-    // Filter available candidates from candidatePool
-    let available = candidatePool.filter((t) => !usedTrackIds.has(t.id));
+    // Filter available tracks from candidatePool (strictly zero bleed!)
+    const available = candidatePool.filter((t) => !usedTrackIds.has(t.id));
     if (available.length === 0) {
-      if (genreMode === 'strict') {
-        // Under strict mode, NEVER fall back to unrelated genres
-        strictWarning = `Your library contained ${curatedSet.length} tracks (${Math.round(accumulatedMs / 60000)} mins) strictly matching "${selectedGenres.join(', ')}". All eligible tracks were curated.`;
-        break;
+      if (isStrictGenre || isStrictInstrumental) {
+        strictWarning = `Your library contained ${curatedSet.length} tracks (${Math.round(accumulatedMs / 60000)} mins) strictly matching all hard criteria. All eligible tracks were sequenced.`;
       }
-      // Non-strict fallback to normalizedPool if candidatePool exhausted
-      available = normalizedPool.filter((t) => !usedTrackIds.has(t.id));
-      if (available.length === 0) break;
+      break;
     }
 
     let bestCandidate: Track | null = null;
@@ -1110,100 +1254,65 @@ export function generateCognitiveDJFlow(
     let bestEval = openerEval;
 
     // Transition style weights
-    let transWeight = 0.45;
+    let transWeight = 0.50;
     let trajWeight = 0.35;
-    let intentWeight = 0.20;
+    let intentWeight = 0.15;
 
     if (mergedControls.transitionStyle === 'smooth' || mergedControls.transitionStyle === 'seamless') {
-      transWeight = 0.60;
-      trajWeight = 0.25;
+      transWeight = 0.65;
+      trajWeight = 0.20;
       intentWeight = 0.15;
     } else if (mergedControls.transitionStyle === 'dynamic' || mergedControls.transitionStyle === 'adventurous') {
-      transWeight = 0.25;
+      transWeight = 0.30;
       trajWeight = 0.50;
-      intentWeight = 0.25;
+      intentWeight = 0.20;
     }
 
-    // Beam evaluation
     for (let i = 0; i < available.length; i++) {
       const candidate = available[i];
 
-      // 1. Transition Coherence Score (0 to 100)
+      // 1. Transition Coherence Score (Camelot + Tempo Ratios + Circumplex + Artist Cooldown)
       const transEval = evaluateTrackTransition(currentAnchor, candidate, currentContext);
 
-      // 2. Global Trajectory Alignment (0 to 100)
+      // 2. Global Trajectory Alignment (Iso-Principle distance)
       const energyDelta = Math.abs(candidate.energy_score - trajectory.targetEnergy);
-      const trajectoryScore = Math.max(0, 100 - energyDelta * 2.5);
+      const trajectoryScore = Math.max(0, 100 - energyDelta * 2.4);
 
-      // 3. Intent Fit Score (0 to 100)
+      // 3. Intent Boundary Fit Score
       let intentFitScore = 100;
-      if (candidate.energy_score < intent.target_energy_range[0] - 12) {
+      if (candidate.energy_score < intent.target_energy_range[0] - 14) {
         intentFitScore -= 30;
-      } else if (candidate.energy_score > intent.target_energy_range[1] + 12) {
+      } else if (candidate.energy_score > intent.target_energy_range[1] + 14) {
         intentFitScore -= 30;
       }
 
-      // 4. Vocal Preference Scoring
-      let vocalScore = 0;
-      if (mergedControls.vocals === 'instrumental') {
-        if (candidate.vocal_presence > 25) {
-          vocalScore -= (candidate.vocal_presence - 25) * 1.5;
-        } else {
-          vocalScore += 20;
-        }
-      } else if (mergedControls.vocals === 'welcome') {
-        if (candidate.vocal_presence >= 50) {
-          vocalScore += 25;
-        }
-      }
-
-      // 5. Energy Intensity Calibration Bonus / Penalty
-      let energyIntensityBonus = 0;
-      if (mergedControls.intensity === 'calm') {
-        if (candidate.energy_score > 62) {
-          energyIntensityBonus -= (candidate.energy_score - 62) * 2.0;
-        }
-        if (candidate.energy_score <= 48) {
-          energyIntensityBonus += 25;
-        }
-      } else if (mergedControls.intensity === 'intense' || mergedControls.intensity === 'energetic') {
-        if (candidate.energy_score < 55) {
-          energyIntensityBonus -= (55 - candidate.energy_score) * 2.0;
-        }
-        if (candidate.energy_score >= 75) {
-          energyIntensityBonus += 25;
-        }
-      }
-
-      // 6. Preferred Genre Bonus (for 'prefer' mode)
+      // 4. Preferred Genre Bonus (for 'prefer' mode)
       let genreBonus = 0;
-      if (genreMode === 'prefer' && selectedGenres.length > 0) {
+      if (!isStrictGenre && selectedGenres.length > 0) {
         if (trackMatchesGenres(candidate, selectedGenres)) {
-          genreBonus = 40;
+          genreBonus = 35;
         }
       }
 
-      // 7. Duration Proximity Optimization near target finish
+      // 5. Duration Proximity Optimization near target finish
       let durationBonus = 0;
       const remainingMs = targetDurationMs - accumulatedMs;
       if (remainingMs <= 300000) {
         const diffFromRemaining = Math.abs((candidate.duration_ms || 210000) - remainingMs);
         if (diffFromRemaining < 45000) {
-          durationBonus = 20;
+          durationBonus = 25;
         }
       }
 
-      // 8. Seed tie-breaking jitter
+      // 6. Seed tie-breaking jitter
       const seedJitter = seed
-        ? ((Math.abs(hashString(candidate.id + ':' + seed + ':' + trackIndex)) % 100) / 100) * 12
+        ? ((Math.abs(hashString(candidate.id + ':' + seed + ':' + trackIndex)) % 100) / 100) * 8
         : 0;
 
       const qualityScore =
         transEval.score * transWeight +
         trajectoryScore * trajWeight +
         intentFitScore * intentWeight +
-        vocalScore +
-        energyIntensityBonus +
         genreBonus +
         durationBonus +
         seedJitter;
@@ -1220,11 +1329,12 @@ export function generateCognitiveDJFlow(
       bestEval = evaluateTrackTransition(currentAnchor, bestCandidate, currentContext);
     }
 
-    // Check if stopping now is closer to the duration target than adding this next candidate
+    // Stop if we have reached at least 95% of target duration and adding this track exceeds 105%
     const currentDiff = Math.abs(accumulatedMs - targetDurationMs);
-    const withCandidateDiff = Math.abs(accumulatedMs + (bestCandidate.duration_ms || 210000) - targetDurationMs);
+    const withCandidateDuration = accumulatedMs + (bestCandidate.duration_ms || 210000);
+    const withCandidateDiff = Math.abs(withCandidateDuration - targetDurationMs);
 
-    if (accumulatedMs >= minRequiredMs && currentDiff <= withCandidateDiff) {
+    if (accumulatedMs >= minRequiredMs && (currentDiff <= withCandidateDiff || withCandidateDuration > maxAllowedMs)) {
       break;
     }
 
@@ -1241,14 +1351,44 @@ export function generateCognitiveDJFlow(
 
     currentAnchor = bestCandidate;
 
-    // Check if we reached the sweet spot around target duration
-    if (accumulatedMs >= targetDurationMs * 0.96 && accumulatedMs <= targetDurationMs * 1.04) {
+    // Check if sweet spot ±5% reached
+    if (accumulatedMs >= targetDurationMs * 0.95 && accumulatedMs <= targetDurationMs * 1.05) {
       break;
     }
   }
 
-  // 7. DYNAMIC PHASE SEGMENTATION
-  // Compute continuous phase boundaries based on actual resulting set duration
+  // 4. 2-OPT ADJACENT HARMONIC REFINEMENT PASS
+  // Optimizes Camelot compatibility without disrupting phase energy arcs
+  if (curatedSet.length >= 4) {
+    for (let pass = 0; pass < 2; pass++) {
+      for (let i = 1; i < curatedSet.length - 2; i++) {
+        const tA = curatedSet[i];
+        const tB = curatedSet[i + 1];
+        const prev = curatedSet[i - 1];
+        const next = curatedSet[i + 2];
+
+        // Trajectory preservation gate: do not swap if energy delta > 8
+        if (Math.abs(tA.energy_score - tB.energy_score) > 8) continue;
+
+        const cCurrent =
+          evaluateTrackTransition(prev, tA, transitionContext).cost +
+          evaluateTrackTransition(tA, tB, transitionContext).cost +
+          evaluateTrackTransition(tB, next, transitionContext).cost;
+
+        const cSwapped =
+          evaluateTrackTransition(prev, tB, transitionContext).cost +
+          evaluateTrackTransition(tB, tA, transitionContext).cost +
+          evaluateTrackTransition(tA, next, transitionContext).cost;
+
+        if (cSwapped < cCurrent - 0.08) {
+          curatedSet[i] = tB;
+          curatedSet[i + 1] = tA;
+        }
+      }
+    }
+  }
+
+  // 5. DYNAMIC PHASE SEGMENTATION
   const totalSetDurationMs = curatedSet.reduce((sum, t) => sum + (t.duration_ms || 210000), 0);
   const phaseConfigs: FlowPhaseConfig[] = [];
   let currentDurationTracker = 0;
@@ -1257,6 +1397,7 @@ export function generateCognitiveDJFlow(
 
   for (let i = 0; i < curatedSet.length; i++) {
     const track = curatedSet[i];
+    track.overallIndex = i + 1;
     phaseTrackAccumulator.push(track);
     currentDurationTracker += track.duration_ms || 210000;
 
@@ -1283,8 +1424,10 @@ export function generateCognitiveDJFlow(
       const minE = energies.length ? Math.min(...energies) : template.target_energy_range[0];
       const maxE = energies.length ? Math.max(...energies) : template.target_energy_range[1];
 
-      for (const t of phaseTrackAccumulator) {
+      for (let pIdx = 0; pIdx < phaseTrackAccumulator.length; pIdx++) {
+        const t = phaseTrackAccumulator[pIdx];
         t.phase = template.name;
+        t.phaseIndex = pIdx + 1;
       }
 
       phaseConfigs.push({
@@ -1304,6 +1447,15 @@ export function generateCognitiveDJFlow(
         currentPhaseIdx++;
       }
     }
+  }
+
+  // Recalculate accurate transition notes for curated set
+  for (let i = 1; i < curatedSet.length; i++) {
+    const prev = curatedSet[i - 1];
+    const curr = curatedSet[i];
+    const evaluation = evaluateTrackTransition(prev, curr, transitionContext);
+    curr.transition_score = evaluation.score;
+    curr.transition_note = evaluation.note;
   }
 
   return {

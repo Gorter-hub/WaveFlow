@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useWaveFlowStore } from '../store/useWaveFlowStore';
 import { EnergyCurveChart } from './EnergyCurveChart';
 import { TracklistTable } from './TracklistTable';
+import { LiveWaveformPreview } from './LiveWaveformPreview';
 import { COGNITIVE_INTENTS } from '../algorithm/curveGenerator';
 import { CognitiveFlowIntentId, IntentCategory } from '../types';
 import { formatDuration } from '../utils/formatters';
@@ -439,6 +440,9 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
                     );
                   })}
                 </div>
+
+                {/* 2.5. REACTIVE REAL-TIME TARGET WAVEFORM PREVIEW */}
+                <LiveWaveformPreview />
 
                 {/* 3. 1-CLICK EXPRESS ACTION BAR */}
                 <div className="p-4 sm:p-5 rounded-2xl bg-zinc-950/90 border border-zinc-800 shadow-xl backdrop-blur-md flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -1023,7 +1027,10 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
 
                 {/* TAB CONTENT 2: MUSIC JOURNEY (CHART) */}
                 {activeResultTab === 'journey' && (
-                  <div className="space-y-4">
+                  <div className="space-y-5">
+                    {/* Synchronized Real-Time Waveform & Resolved Overlay */}
+                    <LiveWaveformPreview />
+
                     <div className="bg-zinc-950/70 rounded-2xl border border-zinc-800/80 p-5 shadow-2xl backdrop-blur-md">
                       <div className="mb-4">
                         <h3 className="text-base font-bold text-white">Neuroacoustic Energy Arc</h3>
