@@ -5,6 +5,7 @@ import { MainView } from './components/MainView';
 import { BottomBar } from './components/BottomBar';
 import { AuthModal } from './components/AuthModal';
 import { SettingsModal } from './components/SettingsModal';
+import { ExportModal } from './components/ExportModal';
 import { Loader2 } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -75,6 +76,9 @@ export const App: React.FC = () => {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
       />
+
+      {/* Export to Spotify with Custom Name Modal */}
+      <ExportModal />
     </div>
   );
 };

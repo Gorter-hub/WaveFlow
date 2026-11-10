@@ -28,7 +28,8 @@ export const BottomBar: React.FC = () => {
     flowTracks,
     exportToSpotify,
     exportedPlaylist,
-    pendingPlaylist
+    pendingPlaylist,
+    setIsExportModalOpen
   } = useWaveFlowStore();
 
   const [currentTime, setCurrentTime] = useState(0);
@@ -418,7 +419,7 @@ export const BottomBar: React.FC = () => {
           )}
 
           <button
-            onClick={exportToSpotify}
+            onClick={() => setIsExportModalOpen(true)}
             disabled={!hasTracks || isExporting}
             className={`flex items-center justify-center gap-2 px-5 py-2.5 rounded-full font-black text-xs uppercase tracking-wider transition-all duration-200 shadow-xl ${
               !hasTracks || isExporting

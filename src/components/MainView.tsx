@@ -107,7 +107,8 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
     startNewFlow,
     editMyFlow,
     regenerateThisFlow,
-    flowResult
+    flowResult,
+    setIsExportModalOpen
   } = useWaveFlowStore();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -787,7 +788,7 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
                       <div className="flex flex-wrap items-center gap-2.5">
                         {/* Export to Spotify CTA */}
                         <button
-                          onClick={exportToSpotify}
+                          onClick={() => setIsExportModalOpen(true)}
                           disabled={isExporting}
                           className={`flex items-center gap-2 px-6 py-3 rounded-full font-black text-xs uppercase tracking-wider transition-all duration-200 shadow-xl border shrink-0 ${
                             isExporting
@@ -1114,7 +1115,7 @@ export const MainView: React.FC<MainViewProps> = ({ onOpenSettings: _onOpenSetti
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
                             <button
-                              onClick={exportToSpotify}
+                              onClick={() => setIsExportModalOpen(true)}
                               disabled={isExporting}
                               className="px-4 py-2 rounded-full bg-spotify hover:bg-spotify-hover text-black font-bold text-xs uppercase tracking-wider transition-all"
                             >

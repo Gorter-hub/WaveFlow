@@ -180,7 +180,9 @@ interface WaveFlowStore {
 
   // Core Flow Workflow
   generateFlow: (seed?: number) => Promise<void>;
-  exportToSpotify: () => Promise<void>;
+  exportToSpotify: (customTitle?: string, customDescription?: string) => Promise<boolean>;
+  isExportModalOpen: boolean;
+  setIsExportModalOpen: (isOpen: boolean) => void;
 }
 
 export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
@@ -226,8 +228,10 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
   wizardStep: 1,
   isWizardMode: true,
   isFineTuneOpen: false,
+  isExportModalOpen: false,
 
   setIsFineTuneOpen: (open: boolean) => set({ isFineTuneOpen: open }),
+  setIsExportModalOpen: (open: boolean) => set({ isExportModalOpen: open }),
 
   init: async () => {
     set({ isAuthLoading: true });
@@ -880,18 +884,29 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
     }
   },
 
-  exportToSpotify: async () => {
+  exportToSpotify: async (customTitle?: string, customDescription?: string): Promise<boolean> => {
     const { tokens, flowTracks, isMockMode, flowIntent, flowResult, pendingPlaylist } = get();
 
     if (flowTracks.length === 0) {
       set({ errorMessage: 'No hay canciones para exportar. Genera un set primero.' });
-      return;
+      return false;
     }
 
-    const intentConfig = COGNITIVE_INTENTS[flowIntent];
-    const durationMins = Math.round((flowResult?.computed_total_duration_ms || 3600000) / 60000);
-    const playlistTitle = `WaveFlow: ${intentConfig.name} (${durationMins}m)`;
-    const description = `${intentConfig.tagline}. Calibrado por WaveFlow AI con arquitectura de transición de BPM y valencia.`;
+    const intentConfig = COGNITIVE_INTENTS[flowIntent] || COGNITIVE_INTENTS.deep_focus;
+
+    // Guaranteed prefix "Flow | " as requested:
+    // "pero que siempre deje Flow | más el nombre que yo ponga"
+    let cleanSuffix = '';
+    if (customTitle && customTitle.trim()) {
+      cleanSuffix = customTitle.trim().replace(/^(Flow\s*\|\s*|Flow\s*-\s*|WaveFlow:\s*)/i, '').trim();
+    }
+    if (!cleanSuffix) {
+      cleanSuffix = intentConfig.name;
+    }
+    const playlistTitle = `Flow | ${cleanSuffix}`;
+    const description =
+      customDescription?.trim() ||
+      `${intentConfig.tagline}. Calibrado por WaveFlow AI con arquitectura neuroacústica de BPM, Camelot y valencia.`;
 
     set({
       status: {
@@ -910,7 +925,7 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
         const mockExport = {
           id: pendingPlaylist?.id || 'mock-exported-playlist-id',
           url: pendingPlaylist?.url || 'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M',
-          name: pendingPlaylist?.name || `WaveFlow — ${intentConfig.name}`
+          name: pendingPlaylist?.name || playlistTitle
         };
         set({
           exportedPlaylist: mockExport,
@@ -921,7 +936,7 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
             progress: 100
           }
         });
-        return;
+        return true;
       }
 
       const result = await exportToSpotifyPlaylist(
@@ -961,6 +976,7 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
       } catch (e) {
         // Confetti optional
       }
+      return true;
     } catch (err: any) {
       console.error('Export error:', err);
       if (err?.playlistId) {
@@ -980,6 +996,7 @@ export const useWaveFlowStore = create<WaveFlowStore>((set, get) => ({
         },
         errorMessage: err?.message || 'Error al exportar playlist a Spotify'
       });
+      return false;
     }
   }
 }));
